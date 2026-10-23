@@ -649,6 +649,16 @@ export function activePrompts(): CustomPrompts {
   return apiSettings.prompts[apiSettings.promptLang];
 }
 
+/** 当前提示词语言是否为英文(供提示词、注入文案、名册标记等选择)。 */
+export function promptLangIsEn(): boolean {
+  return apiSettings.promptLang === 'en';
+}
+
+/** 按当前提示词语言二选一:英文档取 en,其余取 zh。 */
+export function pickLang(zh: string, en: string): string {
+  return promptLangIsEn() ? en : zh;
+}
+
 // 守门标志:hydrate 完成前不回写,避免「默认值」覆盖服务器上已存的设置。
 let ready = false;
 let sharedChannelsFingerprint = '';

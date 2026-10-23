@@ -291,14 +291,13 @@ describe('per-language custom prompts', () => {
     expect(apiSettings.prompts.zh.summary).toBe('ZH {{content}}');
   });
 
-  it('英文档发送的是英文内置模板,材料段以 [PROTAGONIST] 开头', () => {
+  it('英文档发送的 system 与 user 均无中文标点/汉字,材料段以 [PROTAGONIST] 开头', () => {
     apiSettings.promptLang = 'en';
     apiSettings.prompts.en.summary = '';
     const { system, user } = buildSummaryPrompt(args);
     expect(system).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(user).not.toMatch(/[\u4e00-\u9fff]/);
     expect(system).toContain('[Summary Writing Rules]');
-    // 材料段的结构锚点已英文化;其中由代码生成的状态块仍是旧中文格式(见 FAQ 待办),
-    // 因此这里只断言锚点与关键节标题,不断言整段无中文。
     expect(user).toContain('[PROTAGONIST]');
     expect(user).toContain('[CURRENT_KNOWN_STATE]');
     expect(system.length).toBeGreaterThan(1000);

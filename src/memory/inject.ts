@@ -10,13 +10,13 @@
  * 主模型因此仍能感知被隐藏的剧情。历史摘要放在聊天顶部附近,当前状态贴近最近对话。
  */
 
-import { apiSettings, engineActiveHere } from '@/api/settings';
+import { apiSettings, engineActiveHere, pickLang } from '@/api/settings';
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
 import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLeaf, itemReachableAtScene, leafValid } from './apply';
 import { fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, injectLabel, memoryBriefingEnd, memoryBriefingNote } from './prompts';
 import { fmtLifeDetail } from './lifeDetails';
-import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING } from './npcRelations';
+import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING, NPC_AFFINITY_BRIEFING_EN } from './npcRelations';
 import { getHistoryAnchorTime, memory } from './store';
 import { compactTimeLabel, formatRange, latestStoryTime, splitTimeLabel, timeTagPrompt } from './timeTag';
 import { relativeTimeLabel, weekdayLabel, ageDisplay, calculateRelativeDays } from './timeRel';
@@ -329,14 +329,17 @@ function fmtSceneContext(scenes: MemScene[], here: string, locationPath?: string
     const detailed = chain
       .map(n => (oneLine(n.desc) ? `${n.name}(${oneLine(n.desc)})` : n.name))
       .join(' › ');
-    lines.push(`当前所在(由大到小):${detailed}`);
+    lines.push(pickLang(`当前所在(由大到小):${detailed}`, `Current location (broad to specific): ${detailed}`));
   }
   // 其他地点:仅名称(用完整路径表达层级),排除已在祖先链里详述的
   const others = scenes
     .filter(s => !chainIds.has(s.id))
     .map(s => s.path.join(' › '));
   if (others.length) {
-    lines.push(`其他已知地点(仅名称,勿重复记录):\n${others.map(o => `  - ${o}`).join('\n')}`);
+    lines.push(pickLang(
+      `其他已知地点(仅名称,勿重复记录):\n${others.map(o => `  - ${o}`).join('\n')}`,
+      `Other known locations (names only, do not re-record):\n${others.map(o => `  - ${o}`).join('\n')}`,
+    ));
   }
   return lines.join('\n');
 }
@@ -354,30 +357,30 @@ function oneLine(s: string | undefined): string {
 /** 主角不参与 NPC 在场分档;已有字段始终完整注入。年龄按锚点+当前故事时间推算(now)。 */
 function fmtProtagonistContext(protagonist: MemProtagonist, name: string, now: string): string {
   const fields: Array<[string, string | undefined]> = [
-    ['性别', protagonist.gender],
-    ['年龄', ageDisplay(protagonist.age, protagonist.ageTime, now)],
-    ['身份', protagonist.identity],
-    ['外貌', protagonist.appearance],
-    ['着装', protagonist.outfit],
-    ['状态', protagonist.condition],
+    [pickLang('性别', 'Gender'), protagonist.gender],
+    [pickLang('年龄', 'Age'), ageDisplay(protagonist.age, protagonist.ageTime, now)],
+    [pickLang('身份', 'Identity'), protagonist.identity],
+    [pickLang('外貌', 'Appearance'), protagonist.appearance],
+    [pickLang('着装', 'Outfit'), protagonist.outfit],
+    [pickLang('状态', 'Condition'), protagonist.condition],
   ];
   const lines = fields
     .filter(([, value]) => oneLine(value))
     .map(([label, value]) => `  - ${label}:${oneLine(value)}`);
   if (!lines.length) return '';
-  return `${oneLine(name) || '主角'}:\n${lines.join('\n')}`;
+  return `${oneLine(name) || pickLang('主角', 'the protagonist')}:\n${lines.join('\n')}`;
 }
 
 /** 把 NPC 的「即时状态」(着装/状态/所在)拼成一段尾注;无则空串。供在场与主要角色组复用。 */
 function npcStateTail(n: MemNpc, withPlace: boolean): string {
   const tail: string[] = [];
-  if (oneLine(n.outfit)) tail.push(`着装:${oneLine(n.outfit)}`);
-  if (oneLine(n.condition)) tail.push(`状态:${oneLine(n.condition)}`);
+  if (oneLine(n.outfit)) tail.push(`${pickLang('着装', 'outfit')}:${oneLine(n.outfit)}`);
+  if (oneLine(n.condition)) tail.push(`${pickLang('状态', 'condition')}:${oneLine(n.condition)}`);
   if (withPlace) {
-    if (n.follow) tail.push('随行');
-    else if (oneLine(n.location)) tail.push(`在:${oneLine(n.location)}`);
+    if (n.follow) tail.push(pickLang('随行', 'accompanying'));
+    else if (oneLine(n.location)) tail.push(`${pickLang('在', 'at')}:${oneLine(n.location)}`);
   }
-  return tail.length ? ` 〔${tail.join(';')}〕` : '';
+  return tail.length ? pickLang(` 〔${tail.join(';')}〕`, ` (${tail.join('; ')})`) : '';
 }
 
 /**
@@ -425,7 +428,7 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
     affinityOn ? fmtNpcAffinity(n, partial, includeNote) : '';
 
   const lines: string[] = [];
-  if (npcs.some(n => aff(n))) lines.push(NPC_AFFINITY_BRIEFING);
+  if (npcs.some(n => aff(n))) lines.push(pickLang(NPC_AFFINITY_BRIEFING, NPC_AFFINITY_BRIEFING_EN));
   const ties = fmtNpcTiesContext(npcs);
   if (ties) lines.push(ties);
   if (main.length) {
@@ -434,12 +437,15 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
       .map(n => {
         const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
         const head = inBracket.length ? `${n.name}(${inBracket.join('·')})` : n.name;
-        const rel = oneLine(n.relation) ? ` —— 与主角:${oneLine(n.relation)}` : '';
+        const rel = oneLine(n.relation) ? pickLang(` —— 与主角:${oneLine(n.relation)}`, ` — toward protagonist: ${oneLine(n.relation)}`) : '';
         const affinity = aff(n);
-        return `  - ${head}${rel}${affinity ? ` 〔好感估计:${affinity}〕` : ''}${npcStateTail(n, true)}`;
+        return `  - ${head}${rel}${affinity ? pickLang(` 〔好感估计:${affinity}〕`, ` [affinity: ${affinity}]`) : ''}${npcStateTail(n, true)}`;
       })
       .join('\n');
-    lines.push(`主要角色(核心主演,需始终保持其当前状态连贯):\n${detailed}`);
+    lines.push(pickLang(
+      `主要角色(核心主演,需始终保持其当前状态连贯):\n${detailed}`,
+      `Main characters (core cast; keep their current state consistent at all times):\n${detailed}`,
+    ));
   }
   if (present.length) {
     const detailed = present
@@ -448,17 +454,17 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
         const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
         if (inBracket.length) parts.push(`(${inBracket.join('·')})`);
         const profile: string[] = [];
-        if (oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
+        if (oneLine(n.relation)) profile.push(`${pickLang('与主角', 'toward protagonist')}:${oneLine(n.relation)}`);
         const affinity = aff(n);
-        if (affinity) profile.push(`好感估计:${affinity}`);
-        if (oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
+        if (affinity) profile.push(`${pickLang('好感估计', 'affinity')}:${affinity}`);
+        if (oneLine(n.personality)) profile.push(`${pickLang('性格', 'personality')}:${oneLine(n.personality)}`);
         if (oneLine(n.desc)) profile.push(oneLine(n.desc));
         const profileStr = profile.length ? ` —— ${profile.join(';')}` : '';
-        const place = n.follow ? ' [随行]' : '';
+        const place = n.follow ? pickLang(' [随行]', ' [accompanying]') : '';
         return `  - ${parts.join('')}${place}${profileStr}${npcStateTail(n, false)}`;
       })
       .join('\n');
-    lines.push(`在场角色:\n${detailed}`);
+    lines.push(pickLang(`在场角色:\n${detailed}`, `Characters present:\n${detailed}`));
   }
   if (nearby.length) {
     // 同区域:名 + 性别 + 年龄 + 身份 + 关系 + 性格 + 所在地;砍掉外貌/人际/即时状态。留性格以稳住临时出场时的人设。
@@ -467,16 +473,19 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
         const inBracket = [oneLine(n.gender), age(n), oneLine(n.title)].filter(Boolean);
         const bracket = inBracket.length ? `(${inBracket.join('·')})` : '';
         const profile: string[] = [];
-        if (oneLine(n.relation)) profile.push(`与主角:${oneLine(n.relation)}`);
+        if (oneLine(n.relation)) profile.push(`${pickLang('与主角', 'toward protagonist')}:${oneLine(n.relation)}`);
         const affinity = aff(n);
-        if (affinity) profile.push(`好感估计:${affinity}`);
-        if (oneLine(n.personality)) profile.push(`性格:${oneLine(n.personality)}`);
+        if (affinity) profile.push(`${pickLang('好感估计', 'affinity')}:${affinity}`);
+        if (oneLine(n.personality)) profile.push(`${pickLang('性格', 'personality')}:${oneLine(n.personality)}`);
         const pers = profile.length ? ` —— ${profile.join(';')}` : '';
-        const place = oneLine(n.location) ? ` [在:${oneLine(n.location)}]` : '';
+        const place = oneLine(n.location) ? pickLang(` [在:${oneLine(n.location)}]`, ` [at: ${oneLine(n.location)}]`) : '';
         return `  - ${n.name}${bracket}${pers}${place}`;
       })
       .join('\n');
-    lines.push(`同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):\n${brief}`);
+    lines.push(pickLang(
+      `同区域角色(在附近但未必照面;需要时可让其自然登场,勿凭空改设定):\n${brief}`,
+      `Characters in the same area (nearby but not necessarily on screen; they may enter naturally when needed, do not alter their setup out of nowhere):\n${brief}`,
+    ));
   }
   if (absent.length) {
     // 不在场:仅名 + 性别 + 关系称谓 + 身份 + 好感档位,按所在地括注;无外貌/性格/状态
@@ -486,10 +495,13 @@ function fmtNpcContext(npcs: MemNpc[], scenes: MemScene[], here: string, locatio
         const bracket = inBracket.length ? `(${inBracket.join('·')})` : '';
         const loc = oneLine(n.location);
         const affinity = aff(n, false, false);
-        return `  - ${n.name}${bracket}${loc ? ` [在:${loc}]` : ''}${affinity ? ` 〔好感估计:${affinity}〕` : ''}`;
+        return `  - ${n.name}${bracket}${loc ? pickLang(` [在:${loc}]`, ` [at: ${loc}]`) : ''}${affinity ? pickLang(` 〔好感估计:${affinity}〕`, ` [affinity: ${affinity}]`) : ''}`;
       })
       .join('\n');
-    lines.push(`其他已知角色(不在当前场景,简要名册):\n${brief}`);
+    lines.push(pickLang(
+      `其他已知角色(不在当前场景,简要名册):\n${brief}`,
+      `Other known characters (not in the current scene; brief roster):\n${brief}`,
+    ));
   }
   return lines.join('\n');
 }
@@ -513,13 +525,17 @@ function fmtItemContext(items: MemItem[], scenes: MemScene[], here: string, loca
   }
 
   const blocks = [
-    `物品清单:\n${fmtItems(reachable.map(i => ({ name: i.name, qty: i.qty, desc: i.desc, carried: i.carried, location: i.location })))}`,
+    pickLang(`物品清单:\n${fmtItems(reachable.map(i => ({ name: i.name, qty: i.qty, desc: i.desc, carried: i.carried, location: i.location })))}`,
+      `Item list:\n${fmtItems(reachable.map(i => ({ name: i.name, qty: i.qty, desc: i.desc, carried: i.carried, location: i.location })))}`),
   ];
   if (elsewhere.length) {
     const brief = elsewhere
-      .map(i => `  - ${i.name}${typeof i.qty === 'number' ? ` ×${i.qty}` : ''}(存:${oneLine(i.location) || '某处'})`)
+      .map(i => `  - ${i.name}${typeof i.qty === 'number' ? ` ×${i.qty}` : ''}${pickLang(`(存:${oneLine(i.location) || '某处'})`, ` (stored: ${oneLine(i.location) || 'somewhere'})`)}`)
       .join('\n');
-    blocks.push(`他处寄存物品(回到对应地点才有完整信息):\n${brief}`);
+    blocks.push(pickLang(
+      `他处寄存物品(回到对应地点才有完整信息):\n${brief}`,
+      `Items stored elsewhere (full details only back at that location):\n${brief}`,
+    ));
   }
   return blocks;
 }
@@ -535,15 +551,18 @@ export function buildTravelDraft(target: MemScene): string {
   const blocks: string[] = [];
 
   const sceneBlock = fmtSceneContext(memory.scenes, here, locationPath);
-  if (sceneBlock) blocks.push(`地点记忆:\n${sceneBlock}`);
+  if (sceneBlock) blocks.push(pickLang(`地点记忆:\n${sceneBlock}`, `Location memory:\n${sceneBlock}`));
   blocks.push(...fmtItemContext(memory.items, memory.scenes, here, locationPath));
 
   const npcBlock = fmtNpcContext(memory.npcs, memory.scenes, here, locationPath, memory.state.time);
-  if (npcBlock) blocks.push(`NPC名册:\n${npcBlock}`);
+  if (npcBlock) blocks.push(pickLang(`NPC名册:\n${npcBlock}`, `NPC roster:\n${npcBlock}`));
 
   return [
-    `前往「${destination}」，请从抵达后继续剧情。`,
-    `以下是抵达该地点后的相关记忆，请保持设定一致:\n${blocks.join('\n')}`,
+    pickLang(`前往「${destination}」，请从抵达后继续剧情。`, `Travel to "${destination}" and continue the story from arrival.`),
+    pickLang(
+      `以下是抵达该地点后的相关记忆，请保持设定一致:\n${blocks.join('\n')}`,
+      `Relevant memories for after arriving at this location; keep the setting consistent:\n${blocks.join('\n')}`,
+    ),
   ].join('\n\n');
 }
 
@@ -564,20 +583,26 @@ export function buildStateInjectionText(): string {
   if (memory.state.time) {
     // 周几只在标准公历带年份时有(weekdayLabel 自带门槛),古风/架空时间不标
     const wd = weekdayLabel(memory.state.time);
-    st.push(`当前时间:${memory.state.time}${wd ? ` (${wd})` : ''}`);
+    st.push(pickLang(`当前时间:${memory.state.time}${wd ? ` (${wd})` : ''}`, `Current time: ${memory.state.time}${wd ? ` (${wd})` : ''}`));
   }
-  if (memory.state.location) st.push(`当前地点:${oneLine(memory.state.location)}`);
+  if (memory.state.location) st.push(pickLang(`当前地点:${oneLine(memory.state.location)}`, `Current location: ${oneLine(memory.state.location)}`));
 
   // 互动局势卡:衔接当下场面。tension/将发生仅作隐性氛围约束,明确告知勿点破——防过度提及。
   const focus = memory.state.sceneFocus;
   if (inj.sceneFocus && focus) {
-    const bits: string[] = [`局面:${oneLine(focus.situation)}`];
+    const bits: string[] = [pickLang(`局面:${oneLine(focus.situation)}`, `Situation: ${oneLine(focus.situation)}`)];
     const who = focus.participants.map(oneLine).filter(Boolean).join('、');
-    if (who) bits.push(`在场:${who}`);
-    if (focus.currentFocus) bits.push(`当前焦点:${oneLine(focus.currentFocus)}`);
-    if (focus.tension) bits.push(`互动张力:${oneLine(focus.tension)}(隐性氛围约束:自然体现即可,不要点破或反复提及)`);
-    if (focus.pendingBeat) bits.push(`即将发生:${oneLine(focus.pendingBeat)}(自然过渡即可,勿生硬推进)`);
-    st.push(`[当前互动局势]\n${bits.join('\n')}`);
+    if (who) bits.push(pickLang(`在场:${who}`, `Present: ${who}`));
+    if (focus.currentFocus) bits.push(pickLang(`当前焦点:${oneLine(focus.currentFocus)}`, `Current focus: ${oneLine(focus.currentFocus)}`));
+    if (focus.tension) bits.push(pickLang(
+      `互动张力:${oneLine(focus.tension)}(隐性氛围约束:自然体现即可,不要点破或反复提及)`,
+      `Interaction tension: ${oneLine(focus.tension)} (implicit mood constraint: convey naturally, do not state outright or repeat)`,
+    ));
+    if (focus.pendingBeat) bits.push(pickLang(
+      `即将发生:${oneLine(focus.pendingBeat)}(自然过渡即可,勿生硬推进)`,
+      `About to happen: ${oneLine(focus.pendingBeat)} (transition naturally, do not force it)`,
+    ));
+    st.push(pickLang(`[当前互动局势]\n${bits.join('\n')}`, `[Current interaction situation]\n${bits.join('\n')}`));
   }
 
   // 生活小档案:置顶常驻 + 关键词触发的时效/沉降层。「记住 ≠ 每回合必提」——没命中就不出现。
@@ -585,15 +610,18 @@ export function buildStateInjectionText(): string {
   if (inj.lifeDetails && memory.lifeDetails.length) {
     const picked = selectLifeDetailsForInjection(memory.lifeDetails, recentContextText(), memory.state.time, calculateRelativeDays);
     if (picked.length) {
-      const lines = picked.map(d => `- ${oneLine(fmtLifeDetail(d, getContext()?.name1?.trim() || '主角'))}`);
-      st.push(`[生活小档案·按人物]\n${lines.join('\n')}\n(每条仅属于姓名标明的人,不可混用给主角或其他角色;仅在与当前对话自然相关时参考,不要逐条复述或刻意提及,用不上就忽略。档案存在不代表其他角色已知这些细节,仍遵守剧情视角)`);
+      const lines = picked.map(d => `- ${oneLine(fmtLifeDetail(d, getContext()?.name1?.trim() || pickLang('主角', 'the protagonist')))}`);
+      st.push(pickLang(
+        `[生活小档案·按人物]\n${lines.join('\n')}\n(每条仅属于姓名标明的人,不可混用给主角或其他角色;仅在与当前对话自然相关时参考,不要逐条复述或刻意提及,用不上就忽略。档案存在不代表其他角色已知这些细节,仍遵守剧情视角)`,
+        `[Life details · by character]\n${lines.join('\n')}\n(Each entry belongs only to the named person; never reassign it to the protagonist or another character. Consult only when naturally relevant to the current conversation; do not recite entries one by one or bring them up deliberately, ignore them if useless. The existence of an entry does not mean other characters know these details; stay within the story's point of view.)`,
+      ));
     }
   }
 
   // 主角状态自包含,不依赖场景树,独立开关。
   if (inj.protagonist) {
     const protagonistBlock = fmtProtagonistContext(memory.protagonist, getContext()?.name1 ?? '', memory.state.time);
-    if (protagonistBlock) st.push(`[主角当前状态]\n${protagonistBlock}`);
+    if (protagonistBlock) st.push(pickLang(`[主角当前状态]\n${protagonistBlock}`, `[Protagonist current state]\n${protagonistBlock}`));
   }
 
   const here = memory.state.location || '';
@@ -601,7 +629,7 @@ export function buildStateInjectionText(): string {
   // 场景树:当前地点 + 祖先链(详细) + 其他地点(仅名称)。祖先链同时用于物品/NPC 可达判定。
   if (scenesOn) {
     const sceneBlock = fmtSceneContext(memory.scenes, here, locPath);
-    if (sceneBlock) st.push(`地点记忆:\n${sceneBlock}`);
+    if (sceneBlock) st.push(pickLang(`地点记忆:\n${sceneBlock}`, `Location memory:\n${sceneBlock}`));
   }
 
   // 物品分两组省 token:可达(随身 / 存放地落在当前地点或其祖先链)发全量(名+量+描述);
@@ -613,18 +641,21 @@ export function buildStateInjectionText(): string {
   // NPC 名册四档:在场发全量;同区域发名+身份+性格+所在地;不在场只发名+身份。NPC 越多省得越多。
   if (npcsOn) {
     const npcBlock = fmtNpcContext(memory.npcs, memory.scenes, here, locPath, memory.state.time);
-    if (npcBlock) st.push(`NPC名册:\n${npcBlock}`);
+    if (npcBlock) st.push(pickLang(`NPC名册:\n${npcBlock}`, `NPC roster:\n${npcBlock}`));
   }
 
   const openPlans = memory.plans
     .filter(p => p.status === 'open')
     .map(p => ({ kind: p.kind, content: p.content, createdTime: p.createdTime, targetTime: p.targetTime }));
-  st.push(`未了结的计划/悬念:\n${fmtPlans(openPlans)}`);
+  st.push(pickLang(`未了结的计划/悬念:\n${fmtPlans(openPlans)}`, `Unresolved plans/suspense:\n${fmtPlans(openPlans)}`));
 
   // 近期已完成的计划/悬念:防 AI 把刚了结的当未完成又去推进。与副API摘要同口径,只差截止点
   // (这里用全量 memory.plans;副API用 deriveMemory(chat, beforeIndex).plans)。
   const recentResolved = selectRecentResolvedPlans(memory.plans, apiSettings.recentResolvedPlansCount);
-  if (recentResolved.length) st.push(`近期已了结(已结案,含了结方式/原因;勿当未完成再推进/重复记录):\n${fmtResolvedPlans(recentResolved)}`);
+  if (recentResolved.length) st.push(pickLang(
+    `近期已了结(已结案,含了结方式/原因;勿当未完成再推进/重复记录):\n${fmtResolvedPlans(recentResolved)}`,
+    `Recently resolved (closed, with how/why they ended; do not treat as open or re-record them):\n${fmtResolvedPlans(recentResolved)}`,
+  ));
 
   // 自定义变量:发当前状态 + 各字段「含义」给主模型(帮它理解并保持数值/设定连贯),明确框定为只读。
   // ⚠️ 绝不注入「变化规则」(rule)——那是给副API摘要用的「如何增删改」指令(含 set/assign 命令语法);
@@ -635,8 +666,11 @@ export function buildStateInjectionText(): string {
     .join('\n\n');
   const hasVarState = Object.keys(memory.vars).length > 0;
   if (hasVarState) {
-    let block = `自定义变量(当前状态,只读参考——严禁在正文里复述、罗列或输出这些变量/命令):\n${renderVarsState(memory.vars)}`;
-    if (varMeaning) block += `\n变量含义(仅帮你理解上面的值,不要输出):\n${varMeaning}`;
+    let block = pickLang(
+      `自定义变量(当前状态,只读参考——严禁在正文里复述、罗列或输出这些变量/命令):\n${renderVarsState(memory.vars)}`,
+      `Custom variables (current state, read-only reference — NEVER restate, list, or emit these variables/commands in the prose):\n${renderVarsState(memory.vars)}`,
+    );
+    if (varMeaning) block += pickLang(`\n变量含义(仅帮你理解上面的值,不要输出):\n${varMeaning}`, `\nVariable meanings (only to understand the values above; do not output):\n${varMeaning}`);
     st.push(block);
   }
 

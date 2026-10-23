@@ -1,4 +1,5 @@
 import type { MemLifeDetail, StoredDelta } from './types';
+import { pickLang } from '@/api/settings';
 
 type LifeDetailsDelta = NonNullable<StoredDelta['lifeDetails']>;
 type LifeDetailAdd = NonNullable<LifeDetailsDelta['add']>[number];
@@ -29,7 +30,7 @@ export function sameLifeDetail(a: { subject?: string; text: string }, b: { subje
 /** 页面/副 API/主模型注入共用:每一条都明确标出是谁的,不依赖段落标题猜主语。 */
 export function fmtLifeDetail(detail: { subject?: string; text: string }, userName = '主角'): string {
   const subject = lifeDetailSubject(detail);
-  return `${subject === 'user' ? userName : subject}：${detail.text}`;
+  return `${subject === 'user' ? userName : subject}${pickLang('：', ': ')}${detail.text}`;
 }
 
 function upsertUpdate(out: LifeDetailsDelta, update: LifeDetailUpdate): void {

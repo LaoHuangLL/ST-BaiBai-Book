@@ -11,8 +11,12 @@
  * 一句话:宁可不标,绝不标错。
  */
 
+import { pickLang } from '@/api/settings';
+
 /** 中文周几(0=周日) */
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+/** 英文周几缩写 */
+const WEEKDAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** 解析出的故事日期:standard 可精确换算,fantasy 仅同月可比 */
 interface StoryDate {
@@ -290,7 +294,7 @@ export function weekdayLabel(timeStr?: string): string {
   if (!d || d.type !== 'standard' || d.year == null || d.calendarPrefix) return '';
   const obj = new Date(0);
   obj.setFullYear(d.year, (d.month ?? 1) - 1, d.day ?? 1);
-  return `周${WEEKDAY_NAMES[obj.getDay()]}`;
+  return pickLang(`周${WEEKDAY_NAMES[obj.getDay()]}`, WEEKDAY_NAMES_EN[obj.getDay()]);
 }
 
 /**
@@ -306,13 +310,13 @@ export function relativeTimeLabel(eventTime?: string, nowTime?: string): string 
   const days = calculateRelativeDays(ev, now);
   if (days === null || days === undefined) return '';
 
-  if (days === 0) return '今天';
-  if (days === 1) return '昨天';
-  if (days === 2) return '前天';
-  if (days === 3) return '大前天';
-  if (days === -1) return '明天';
-  if (days === -2) return '后天';
-  if (days === -3) return '大后天';
+  if (days === 0) return pickLang('今天', 'today');
+  if (days === 1) return pickLang('昨天', 'yesterday');
+  if (days === 2) return pickLang('前天', 'the day before yesterday');
+  if (days === 3) return pickLang('大前天', 'three days ago');
+  if (days === -1) return pickLang('明天', 'tomorrow');
+  if (days === -2) return pickLang('后天', 'the day after tomorrow');
+  if (days === -3) return pickLang('大后天', 'in three days');
 
   // 「上周X/上个月X号/去年X月X日」等是公历口语,套到带历法前缀的古风/赛博时间(元持/庆历/星历…)上
   // 既出戏、对小年份的 getDay() 还是乱算的。故带前缀时不取 pair → 跳过这些档,降级为通用「N天前/N个月前/N年前」。
@@ -323,53 +327,69 @@ export function relativeTimeLabel(eventTime?: string, nowTime?: string): string 
 
   if (days > 0) {
     // 过去方向
-    if (days < 4) return `${days}天前`;
+    if (days < 4) return pickLang(`${days}天前`, `${days} days ago`);
     if (days >= 4 && days <= 13 && pair) {
       const wd = weekDiffByMonday(pair.from, pair.to);
-      if (wd === 1) return `上周${WEEKDAY_NAMES[pair.from.getDay()]}`;
-      if (wd === 2) return `上上周${WEEKDAY_NAMES[pair.from.getDay()]}`;
+      const wdName = pickLang(WEEKDAY_NAMES[pair.from.getDay()], WEEKDAY_NAMES_EN[pair.from.getDay()]);
+      if (wd === 1) return pickLang(`上周${WEEKDAY_NAMES[pair.from.getDay()]}`, `last ${wdName}`);
+      if (wd === 2) return pickLang(`上上周${WEEKDAY_NAMES[pair.from.getDay()]}`, `the ${wdName} before last`);
     }
     if (days >= 7 && days < 60 && pair && monthDiff(pair.from, pair.to) === 1) {
-      return `上个月${pair.from.getDate()}号`;
+      return pickLang(`上个月${pair.from.getDate()}号`, `day ${pair.from.getDate()} of last month`);
     }
     if (days >= 300 && pair) {
       const yearDiff = pair.to.getFullYear() - pair.from.getFullYear();
-      if (yearDiff === 1) return `去年${pair.from.getMonth() + 1}月${pair.from.getDate()}日`;
-      if (yearDiff === 2) return `前年${pair.from.getMonth() + 1}月${pair.from.getDate()}日`;
+      if (yearDiff === 1) {
+        return pickLang(
+          `去年${pair.from.getMonth() + 1}月${pair.from.getDate()}日`,
+          `last year on ${pair.from.getMonth() + 1}/${pair.from.getDate()}`,
+        );
+      }
+      if (yearDiff === 2) {
+        return pickLang(
+          `前年${pair.from.getMonth() + 1}月${pair.from.getDate()}日`,
+          `two years ago on ${pair.from.getMonth() + 1}/${pair.from.getDate()}`,
+        );
+      }
     }
-    if (days < 30) return `${days}天前`;
+    if (days < 30) return pickLang(`${days}天前`, `${days} days ago`);
     if (days < 365) {
       const md = pair ? monthDiff(pair.from, pair.to) : 0;
       const months = md > 0 ? md : Math.floor(days / 30);
-      return `${months}个月前`;
+      return pickLang(`${months}个月前`, `${months} months ago`);
     }
     const years = Math.floor(days / 365);
     const remainMonths = Math.round((days % 365) / 30);
-    if (remainMonths > 0 && years < 5) return `${years}年${remainMonths}个月前`;
-    return `${years}年前`;
+    if (remainMonths > 0 && years < 5) {
+      return pickLang(`${years}年${remainMonths}个月前`, `${years} years ${remainMonths} months ago`);
+    }
+    return pickLang(`${years}年前`, `${years} years ago`);
   }
 
   // 未来方向
   const abs = Math.abs(days);
-  if (abs < 4) return `${abs}天后`;
+  if (abs < 4) return pickLang(`${abs}天后`, `in ${abs} days`);
   if (abs >= 4 && abs <= 13 && pair) {
     const wd = weekDiffByMonday(pair.from, pair.to);
-    if (wd === -1) return `下周${WEEKDAY_NAMES[pair.from.getDay()]}`;
-    if (wd === -2) return `下下周${WEEKDAY_NAMES[pair.from.getDay()]}`;
+    const wdName = pickLang(WEEKDAY_NAMES[pair.from.getDay()], WEEKDAY_NAMES_EN[pair.from.getDay()]);
+    if (wd === -1) return pickLang(`下周${WEEKDAY_NAMES[pair.from.getDay()]}`, `next ${wdName}`);
+    if (wd === -2) return pickLang(`下下周${WEEKDAY_NAMES[pair.from.getDay()]}`, `the ${wdName} after next`);
   }
   if (abs >= 7 && abs < 60 && pair && monthDiff(pair.from, pair.to) === -1) {
-    return `下个月${pair.from.getDate()}号`;
+    return pickLang(`下个月${pair.from.getDate()}号`, `day ${pair.from.getDate()} of next month`);
   }
-  if (abs < 30) return `${abs}天后`;
+  if (abs < 30) return pickLang(`${abs}天后`, `in ${abs} days`);
   if (abs < 365) {
     const md = pair ? monthDiff(pair.from, pair.to) : 0;
     const months = md < 0 ? Math.abs(md) : Math.floor(abs / 30);
-    return `${months}个月后`;
+    return pickLang(`${months}个月后`, `in ${months} months`);
   }
   const years = Math.floor(abs / 365);
   const remainMonths = Math.round((abs % 365) / 30);
-  if (remainMonths > 0 && years < 5) return `${years}年${remainMonths}个月后`;
-  return `${years}年后`;
+  if (remainMonths > 0 && years < 5) {
+    return pickLang(`${years}年${remainMonths}个月后`, `in ${years} years ${remainMonths} months`);
+  }
+  return pickLang(`${years}年后`, `in ${years} years`);
 }
 
 /* ============ 年龄推算(锚点制) ============ */
@@ -388,7 +408,9 @@ function parseAgeNumber(raw: string): number | null {
 /** 锚点时间的简短标注:能解析出年份 → 「(前缀)X年」;否则剥掉时刻后的原文;再不行空串。 */
 function anchorLabel(ageTime: string): string {
   const d = parseStoryDate(ageTime);
-  if (d?.type === 'standard' && d.year != null) return `${d.calendarPrefix ?? ''}${d.year}年`;
+  if (d?.type === 'standard' && d.year != null) {
+    return pickLang(`${d.calendarPrefix ?? ''}${d.year}年`, `${d.calendarPrefix ?? ''}${d.year}`);
+  }
   return ageTime.trim();
 }
 
@@ -414,9 +436,11 @@ export function ageDisplay(age?: string, ageTime?: string, now?: string): string
   if (days != null && days >= 365 && num != null) {
     const est = num + Math.floor(days / 365);
     const label = anchorLabel(anchor);
-    return label ? `约${est}岁(${label}时${num}岁)` : `约${est}岁`;
+    return label
+      ? pickLang(`约${est}岁(${label}时${num}岁)`, `~${est} (${num} at ${label})`)
+      : pickLang(`约${est}岁`, `~${est}`);
   }
   // 算不出(架空跨月/时间倒流/模糊年龄跨年):原文 + 锚点括注,不猜
   const label = anchorLabel(anchor);
-  return label ? `${raw}(${label}时)` : raw;
+  return label ? pickLang(`${raw}(${label}时)`, `${raw} (as of ${label})`) : raw;
 }
