@@ -4,7 +4,7 @@ import * as settings from '@/api/settings';
 import * as context from '@/st/context';
 import type { STContext, STMessage } from '@/st/context';
 import * as notices from '@/st/toast';
-import { batchBackfill, checkResummary, currentSummaryPromise, handleGenerationIntercept, openingPendingFloor, planBatches, summarizeFloor, summarizeSelected } from './engine';
+import { batchBackfill, checkResummary, currentSummaryPromise, handleGenerationIntercept, openingPendingFloor, planBatches, planWindowHide, summarizeFloor, summarizeSelected } from './engine';
 import { buildBatchThinking, buildResummaryPrompt, buildSummaryThinking, RESUMMARY_THINKING_CHECKLIST, SUMMARY_OUTPUT_PROTOCOL } from './prompts';
 
 /** 新提示词的成文顺序段落标记(替代旧 RULE_SUMMARY_COMPOSITION 常量)。 */
@@ -571,5 +571,71 @@ describe.each(['automatic', 'manual'] as const)('compression audit output (%s)',
 
     expect(await compress(ids)).toBe(0);
     expect(memory.summaries).toHaveLength(0);
+  });
+});
+
+describe('planWindowHide(批量隐藏计划)', () => {
+  const aiWithLeaf = (id: string) => message(false, { extra: { bbs_leaf: { ...leaf(), id } } });
+
+  beforeEach(() => {
+    Object.assign(memory, createEmptyMemory());
+  });
+
+  it('滑出窗口且已覆盖的楼进入 toHide,窗口内的不隐藏', () => {
+    // AI 楼在 1/3/5,各带叶子 → 覆盖 0..5;keepRecent=1 → keepStart=5
+    const chat = [
+      message(true), aiWithLeaf('l1'),
+      message(true), aiWithLeaf('l2'),
+      message(true), aiWithLeaf('l3'),
+    ];
+    settings.apiSettings.keepRecent = 1;
+
+    const plan = planWindowHide(chat);
+    expect(plan.toUnhide).toEqual([]);
+    expect(plan.pending).toEqual([]);
+    expect(plan.toHide).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('滑出窗口、尚未覆盖的尾部 AI 楼进入 pending(先补摘再隐藏)', () => {
+    // 叶子只覆盖到 5;7/9 是待摘要 AI 楼,且 7 已滑出 keepStart=9
+    const chat = [
+      message(true), aiWithLeaf('l1'),
+      message(true), aiWithLeaf('l2'),
+      message(true), aiWithLeaf('l3'),
+      message(true), message(false),
+      message(true), message(false),
+    ];
+    settings.apiSettings.keepRecent = 1;
+
+    const plan = planWindowHide(chat);
+    expect(plan.pending).toEqual([7]);
+    expect(plan.toHide).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(plan.toUnhide).toEqual([]);
+  });
+
+  it('窗口调大后,窗口内仍带 bbs_hidden 的楼进入 toUnhide(自愈)', () => {
+    const chat = [
+      message(false, { extra: { bbs_leaf: leaf(), bbs_hidden: true }, is_system: true }),
+      message(true), aiWithLeaf('l2'),
+      message(true), aiWithLeaf('l3'),
+    ];
+    settings.apiSettings.keepRecent = 3; // 全部 AI 楼都在窗口内
+
+    const plan = planWindowHide(chat);
+    expect(plan.toHide).toEqual([]);
+    expect(plan.toUnhide).toEqual([0]);
+  });
+
+  it('bbs_hidden 但 is_system 丢失时重新隐藏(自愈)', () => {
+    const chat = [
+      message(false, { extra: { bbs_leaf: leaf(), bbs_hidden: true } }),
+      message(true), aiWithLeaf('l2'),
+    ];
+    settings.apiSettings.keepRecent = 1; // keepStart=3,0 已出窗
+
+    const plan = planWindowHide(chat);
+    // 0 是 AI 楼(带 bbs_hidden、is_system 丢失);1 是用户楼,被 l2 的叶子覆盖且已出窗
+    expect(plan.toHide).toEqual([0, 1]);
+    expect(plan.toUnhide).toEqual([]);
   });
 });

@@ -17,7 +17,7 @@ import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLe
 import { fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING } from './npcRelations';
-import { memory } from './store';
+import { getHistoryAnchorTime, memory } from './store';
 import { compactTimeLabel, formatRange, latestStoryTime, splitTimeLabel, timeTagPrompt } from './timeTag';
 import { relativeTimeLabel, weekdayLabel, ageDisplay, calculateRelativeDays } from './timeRel';
 import { selectViewNodes, selectLifeDetailsForInjection, type ViewNode } from './select';
@@ -278,9 +278,12 @@ export function buildHistoryInjectionText(): string {
   // 从森林选「最高存活压缩层」节点(被收纳的不重复、窗口内全文叶子不注入)
   const sums = selectInjectionNodes(memory.summaries, chat);
   if (!sums.length) return '';
-  // 注入路径带相对时间前缀;参照点 = 故事内最新时间(读正文标签,不受是否已摘影响)
+  // 注入路径带相对时间前缀;基准优先用「批量隐藏提交时刻」冻结的锚点,
+  // 老数据没有锚点才回退故事内最新时间。锚点固定 → 两次批量之间相对时间标签
+  // 不随最新楼变化,注入块逐字节稳定(前缀缓存不失效)。
   // 首尾私密简报框定,避免主模型把摘要当成要复述/输出的模板
-  return `${MEMORY_BRIEFING_NOTE}\n[历史剧情摘要]\n${renderHistoryNodesWithRelative(sums, latestStoryTime(chat))}\n${MEMORY_BRIEFING_END}`;
+  const now = getHistoryAnchorTime() || latestStoryTime(chat);
+  return `${MEMORY_BRIEFING_NOTE}\n[历史剧情摘要]\n${renderHistoryNodesWithRelative(sums, now)}\n${MEMORY_BRIEFING_END}`;
 }
 
 /**

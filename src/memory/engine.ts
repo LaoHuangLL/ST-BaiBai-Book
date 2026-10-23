@@ -10,9 +10,9 @@ import { extractJsonObject } from './json';
 import { fmtConditionFragments } from './conditionPatch';
 import { clearInjection, refreshInjection, renderHistoryNodes, selectHistoryNodesBefore } from './inject';
 import { buildBatchSummaryPrompt, buildBatchThinking, buildCharCardSystem, buildPersonaSystem, buildResummaryPrompt, buildSummaryPrompt, buildSummaryThinking, buildWorldInfoSystem, fmtItemLogInline, isBuiltinSummaryPrompt, JAILBREAK_PROMPT, RESUMMARY_THINKING_CHECKLIST, selectRecentResolvedPlans } from './prompts';
-import { clampToTimeTags, cleanBody, parseTimeRange, syncTimeTagRegex, writeItemLogTag, writeVarLogTag } from './timeTag';
+import { clampToTimeTags, cleanBody, latestStoryTime, parseTimeRange, syncTimeTagRegex, writeItemLogTag, writeVarLogTag } from './timeTag';
 import { renderSourceHints, type SourceExcerpt } from './sourceHints';
-import { memory, recomputeDerived, scheduleLeafFlush } from './store';
+import { memory, recomputeDerived, scheduleLeafFlush, setHistoryAnchorTime } from './store';
 import type { LeafExtra, SummaryDelta } from './types';
 import { scheduleVectorIndex } from './vector';
 import { invalidateRecallCache } from './vector/cache';
@@ -637,8 +637,8 @@ export async function handleGenerationIntercept(
 }
 
 /** 摘要后的统一收尾:同步滑动隐藏 + 刷新注入(自动隐藏已并入摘要流程,不再有独立开关) */
-async function afterSummaryHideAndInject(chat: STMessage[]): Promise<void> {
-  await syncWindowHiddenState(chat);
+async function afterSummaryHideAndInject(chat: STMessage[], mode: HideSyncMode = 'auto'): Promise<void> {
+  await syncWindowHiddenState(chat, mode);
   refreshInjection();
 }
 
@@ -646,15 +646,37 @@ async function afterSummaryHideAndInject(chat: STMessage[]): Promise<void> {
  * 对外的「检测一次隐藏」:按当前叶子覆盖情况同步滑动窗口隐藏 + 刷新注入。
  * 供迁移等批量写入叶子后调用,复用摘要收尾同一套逻辑;守卫与摘要流程一致
  * (引擎在此聊天不生效 / 自动摘要关闭则不隐藏,仅刷新注入)。force=true 供用户主动导入/删除
- * 旧总结时立即同步覆盖范围,不受自动摘要开关影响。
+ * 旧总结时立即同步覆盖范围,不受自动摘要开关影响,也不发起补摘。
  */
 export async function syncHiddenNow(force = false): Promise<void> {
   const chat = getContext()?.chat ?? [];
-  if (force || (engineActiveHere() && apiSettings.autoSummaryEnabled)) {
-    await afterSummaryHideAndInject(chat);
+  if (force) {
+    await afterSummaryHideAndInject(chat, 'force');
+  } else if (engineActiveHere() && apiSettings.autoSummaryEnabled) {
+    await afterSummaryHideAndInject(chat, 'auto');
   } else {
     refreshInjection();
   }
+}
+
+/**
+ * 启动/改窗口后的修复:只恢复「按当前保留窗口不该隐藏」的楼,不隐藏任何楼。
+ * 典型场景:keepRecent 由 3 调到 30 后,窗口内的旧隐藏楼应恢复全文。
+ *
+ * 守卫:自动摘要关闭时保持旧行为(不动隐藏状态);记忆尚未载入(森林为空)时也不能动,
+ * 否则覆盖集为空会被误判成「全都不该隐藏」,一次性把历史楼全放出来。
+ */
+export async function repairHiddenNow(): Promise<void> {
+  if (!engineActiveHere() || !apiSettings.autoSummaryEnabled) return;
+  if (memory.summaries.length === 0) return;
+  const chat = getContext()?.chat ?? [];
+  await syncWindowHiddenState(chat, 'repair');
+  // 老数据没有锚点:趁修复这一下把相对时间基准钉住,否则下一次批量隐藏前注入块仍会逐轮变
+  if (!memory.historyAnchorTime) {
+    const now = latestStoryTime(chat);
+    if (now) setHistoryAnchorTime(now);
+  }
+  refreshInjection();
 }
 
 /**
@@ -856,37 +878,97 @@ export function coalesceRanges(indices: number[]): Array<[number, number]> {
   return ranges;
 }
 
+/** 一次隐藏同步的完整计划(纯函数算出,便于单测)。 */
+export interface WindowHidePlan {
+  /** 已出保留窗口且已被摘要覆盖、尚未隐藏:可直接 /hide */
+  toHide: number[];
+  /** 曾由本插件隐藏、但按当前窗口/覆盖已不该隐藏:应 /unhide */
+  toUnhide: number[];
+  /** 已出窗口、尚未被摘要覆盖的 AI 楼:批量触发时先逐楼补摘,避免藏成信息黑洞 */
+  pending: number[];
+}
+
 /**
- * 同步滑动窗口隐藏状态:
- *  - 隐藏「保留窗口之前、已被摘要覆盖、尚未隐藏」的消息。
- *  - 取消隐藏「曾由本插件隐藏、但现在不应隐藏」的消息。
- * 走 ST 原生 /hide(对齐 Horae、自动同步 DOM、走官方入口),
- * /unhide,同时用 extra.bbs_hidden 私有标记区分「我们隐藏的」与「ST 原生系统楼」。
- * 只隐藏已被摘要覆盖的,绝不制造信息黑洞。
+ * 计算隐藏计划。判定与旧版一致:
+ *  - 隐藏条件 = 已被摘要覆盖 且 (滑出保留窗口 或 落在「导入历史」接管区间);
+ *  - toHide 只含未隐藏的楼,toUnhide 只含带 bbs_hidden 标记的楼,
+ *    所以 ST 原生系统楼、用户手动隐藏的楼不会被误动。
  */
-async function syncWindowHiddenState(chat: STMessage[]): Promise<void> {
+export function planWindowHide(chat: STMessage[]): WindowHidePlan {
   const keepStart = resolveKeepStart(chat);
   const covered = coveredSet(chat);
   const imported = importedHistoryRanges();
-  const ctx = getContext();
-  if (!ctx) return;
+  const plan: WindowHidePlan = { toHide: [], toUnhide: [], pending: [] };
 
-  const toHide: number[] = [];
-  const toUnhide: number[] = [];
   for (let i = 0; i < chat.length; i++) {
     const m = chat[i];
     if (!m) continue;
+    const inImported = floorInImportedRanges(i, imported);
     // 用户明确把一段旧剧情交给“导入历史”接管时,整段都隐藏,不再受最近窗口保留数影响,
     // 否则导入正文会与窗口内旧原文重复注入。删除导入节点后会自动走下面的 unhide。
-    const shouldHide = covered.has(i) && (i < keepStart || floorInImportedRanges(i, imported));
+    const shouldHide = covered.has(i) && (i < keepStart || inImported);
     if (shouldHide) {
-      if (!m.extra?.bbs_hidden || m.is_system !== true) toHide.push(i);
-    } else if (m.extra?.bbs_hidden) {
-      toUnhide.push(i);
+      // is_system 也要校正:用户手动 /unhide 后 bbs_hidden 标记仍在,这里会重新隐藏(自愈)
+      if (!m.extra?.bbs_hidden || m.is_system !== true) plan.toHide.push(i);
+      continue;
+    }
+    if (m.extra?.bbs_hidden) plan.toUnhide.push(i);
+    // 待摘要 AI 楼只有滑出窗口才计入批量;窗口内的留到下一轮逐楼摘要
+    if (i < keepStart && !inImported && isAiFloor(m) && !leafValid(m)) plan.pending.push(i);
+  }
+  return plan;
+}
+
+/** 隐藏同步模式:auto=批量门控;force=立即同步;repair=只恢复、不隐藏 */
+type HideSyncMode = 'auto' | 'force' | 'repair';
+
+/**
+ * 同步滑动窗口隐藏状态(批量版)。
+ *
+ *  - auto:攒够 apiSettings.batchSize 个「已出窗待隐藏 + 已出窗待摘要」才提交一批;
+ *    两次批量之间不产生任何 /hide、/unhide,聊天前缀与注入块保持稳定(前缀缓存可复用)。
+ *    例外:出现「应恢复」的楼(叶子失效、删总结、调大窗口)属异常自愈,立即处理。
+ *  - force:立即按当前覆盖同步(导入/删除旧总结、改保留窗口后调用),不发起摘要请求。
+ *  - repair:只取消不该隐藏的楼,不隐藏任何楼(供启动时修正调大窗口后的旧隐藏)。
+ *
+ * 待摘要楼只在自动批量触发时补摘,且逐楼单独一次摘要调用(不合并、不降质);
+ * 补摘后它们进入覆盖集,再与同批的已覆盖楼一起 /hide。
+ *
+ * 返回值:本次是否真的改动了隐藏状态。
+ */
+async function syncWindowHiddenState(chat: STMessage[], mode: HideSyncMode = 'auto'): Promise<boolean> {
+  if (mode !== 'repair') {
+    const first = planWindowHide(chat);
+    const batchSize = Math.max(0, apiSettings.batchSize);
+    if (mode === 'auto' && batchSize > 0) {
+      const triggered = first.toHide.length + first.pending.length >= batchSize;
+      if (!triggered && first.toUnhide.length === 0) return false; // 未到批量门槛:一个隐藏位都不动
+      for (const floor of first.pending) {
+        if (busy) break; // 正在摘要时让位,下一轮再补
+        if (leafValid(chat[floor])) continue;
+        await runSummary(floor);
+      }
     }
   }
-  if (toHide.length === 0 && toUnhide.length === 0) return;
 
+  const plan = planWindowHide(chat);
+  const toHide = mode === 'repair' ? [] : plan.toHide;
+  const toUnhide = plan.toUnhide;
+  if (toHide.length === 0 && toUnhide.length === 0) return false;
+
+  await applyWindowHiddenChanges(chat, toHide, toUnhide);
+  // 锚点 = 本次提交时刻的故事内时间;两次批量之间注入端只用它,不再跟随最新正文
+  const now = latestStoryTime(chat);
+  if (now) setHistoryAnchorTime(now);
+  // 层级压缩也放到批量提交的同一时刻,避免两次批量之间新 comp 改变注入节点集合
+  if (mode !== 'repair' && apiSettings.batchSize > 0 && !busy) await checkResummary();
+  return true;
+}
+
+/** 真正执行 /hide、/unhide,失败时回退到直接写 is_system。 */
+async function applyWindowHiddenChanges(chat: STMessage[], toHide: number[], toUnhide: number[]): Promise<void> {
+  const ctx = getContext();
+  if (!ctx) return;
   const exec = ctx.executeSlashCommandsWithOptions;
   if (typeof exec === 'function') {
     for (const [start, end] of coalesceRanges(toUnhide)) {
@@ -1240,8 +1322,9 @@ async function runSummaryInner(aiFloor: number, options: RunSummaryOptions = {})
   engineState.lastError = '';
   try {
     await summarizeFloorWork(chat, aiFloor, sender, options);
-    // 摘要积累到阈值则触发总结
-    if (options.checkResummary !== false) await checkResummary();
+    // 摘要积累到阈值则触发总结。开启批量隐藏时推迟到批量提交那一刻统一压缩,
+    // 否则两次批量之间新生成的 comp 会改变注入节点集合,破坏注入块稳定性。
+    if (options.checkResummary !== false && apiSettings.batchSize <= 0) await checkResummary();
   } catch (e) {
     engineState.lastError = e instanceof Error ? e.message : String(e);
   } finally {
@@ -1841,7 +1924,7 @@ function reactToChatMutation(syncHidden = false): void {
     pruneBrokenComps(); // 叶子失效 → 删包含它的整条祖先压缩链
     recomputeDerived(); // 删叶/陈旧 → 物品/计划回退;UI(derivedMeta)更新
     if (syncHidden && engineActiveHere() && apiSettings.autoSummaryEnabled) {
-      void syncWindowHiddenState(getContext()?.chat ?? [])
+      void syncWindowHiddenState(getContext()?.chat ?? [], 'force')
         .catch(e => {
           engineState.lastError = e instanceof Error ? e.message : String(e);
         })
@@ -1918,6 +2001,8 @@ export function bindEngine(): void {
       setTimeout(() => {
         normalizeBacklogNotices(getContext()?.chat ?? []);
         refreshInjection();
+        // 切聊天后修复一次:窗口内仍被旧配置隐藏的楼恢复全文(只恢复不隐藏,代价 O(n))
+        void repairHiddenNow();
       }, 0);
     });
   }
@@ -1942,5 +2027,15 @@ export function bindEngine(): void {
   watch(
     () => apiSettings.summaryOnlyMode,
     () => refreshInjection(),
+  );
+
+  // 保留窗口变化:按新窗口立即校正一次隐藏。调大 → 恢复窗口内旧隐藏楼的全文;
+  // 调小 → 立即收起已滑出窗口的旧楼(配置变更属显式操作,不受批量门槛限制)。
+  // 自动摘要关闭时不动隐藏状态(与旧行为一致:引擎关着就不改楼层可见性)。
+  watch(
+    () => apiSettings.keepRecent,
+    () => {
+      if (apiSettings.autoSummaryEnabled) void syncHiddenNow(true);
+    },
   );
 }

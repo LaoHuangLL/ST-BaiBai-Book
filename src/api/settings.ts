@@ -201,8 +201,15 @@ export interface ApiSettings {
   summaryOnlyMode: boolean;
   /** 注入设置:各状态块是否注入主模型(仅摘要模式开启时整组不生效) */
   injection: InjectionSections;
-  /** 保留最近 N 条 AI 消息发全文(滑动窗口);更早的自动摘要并隐藏 */
+  /** 保留最近 N 条 AI 消息发全文(滑动窗口);更早的自动摘要并隐藏。
+   *  默认 30:窗口内全部保留原文,靠下面的 batchSize 批量隐藏,以稳定前缀缓存。 */
   keepRecent: number;
+  /**
+   * 批量隐藏:攒够多少「已摘要/待摘要且已滑出保留窗口」的楼,才一次性隐藏一批。
+   * 两次批量之间 syncWindowHiddenState 不产生任何 /hide、/unhide,保证注入块与聊天前缀稳定。
+   * 0 = 关闭批量(退回逐轮隐藏的旧行为);默认 10。
+   */
+  batchSize: number;
   /** 排除的角色名:这些名字(含重名卡)的聊天里,记忆系统所有功能都不生效 */
   excludedChars: string[];
   /** 摘要/总结时**整本排除**的世界书文件名:这些书的所有激活条目都不进摘要上下文。
@@ -343,7 +350,8 @@ function defaults(): ApiSettings {
     autoSummaryEnabled: true,
     summaryOnlyMode: false,
     injection: { sceneFocus: true, lifeDetails: true, protagonist: true, npcs: true, npcAffinity: true, items: true, scenes: true },
-    keepRecent: 3,
+    keepRecent: 30,
+    batchSize: 10,
     excludedChars: [],
     excludedWorldNames: [],
     // 空起步:内置默认规则(DEFAULT_WI_PATTERNS)由 hydrateSettings「播种」发放,只发一次。
@@ -479,6 +487,13 @@ function normalize(raw: unknown): ApiSettings {
     Number.isFinite(merged.batchMaxFloors) && merged.batchMaxFloors >= 1
       ? Math.floor(merged.batchMaxFloors)
       : 10;
+  // 保留窗口与批量隐藏:非负整数。老配置没有 batchSize 键 → 是「批量隐藏」之前的版本,
+  // 其 keepRecent=3 属于旧默认值,一次性抬到新默认 30;之后用户手动设 3 不再被覆盖。
+  merged.keepRecent =
+    Number.isFinite(merged.keepRecent) && merged.keepRecent >= 0 ? Math.floor(merged.keepRecent) : d.keepRecent;
+  merged.batchSize =
+    Number.isFinite(merged.batchSize) && merged.batchSize >= 0 ? Math.floor(merged.batchSize) : 10;
+  if ((raw as Partial<ApiSettings>).batchSize === undefined && merged.keepRecent === 3) merged.keepRecent = 30;
   // 自定义清洗标签:容错用户连尖括号/斜杠一起填进来(<snow> / </snow>),只留合法标签名字符;
   // 去空、去重,缺失/非数组回退空数组。
   merged.customStripTags = Array.isArray(merged.customStripTags)
@@ -597,6 +612,7 @@ function applyInto(target: ApiSettings, src: ApiSettings): void {
   target.summaryOnlyMode = src.summaryOnlyMode;
   target.injection = src.injection;
   target.keepRecent = src.keepRecent;
+  target.batchSize = src.batchSize;
   target.excludedChars = src.excludedChars;
   target.excludedWorldNames = src.excludedWorldNames;
   target.excludedWorldInfoPatterns = src.excludedWorldInfoPatterns;

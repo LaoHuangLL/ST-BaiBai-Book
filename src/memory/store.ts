@@ -138,13 +138,32 @@ export function flushLeavesNow(): void {
 export function saveMemory() {
   const ctx = getContext();
   if (!ctx?.chatMetadata) return;
-  const snapshot: { version: number; summaries: MemSummary[]; varsTemplate: VarTemplate } = {
+  const snapshot: {
+    version: number;
+    summaries: MemSummary[];
+    varsTemplate: VarTemplate;
+    historyAnchorTime: string;
+  } = {
     version: MEMORY_VERSION,
     summaries: JSON.parse(JSON.stringify(memory.summaries)),
     varsTemplate: JSON.parse(JSON.stringify(memory.varTemplates.chat)),
+    historyAnchorTime: memory.historyAnchorTime || '',
   };
   (ctx.chatMetadata as Record<string, unknown>)[MEMORY_KEY] = snapshot;
   ctx.saveMetadataDebounced?.();
+}
+
+/** 摘要注入块的时间锚点(批量隐藏提交时刻的故事内时间);空串=尚未提交。 */
+export function getHistoryAnchorTime(): string {
+  return memory.historyAnchorTime || '';
+}
+
+/** 更新锚点并落盘。批量/强制隐藏后调用,把相对时间基准钉在本次提交时刻。 */
+export function setHistoryAnchorTime(value: string): void {
+  const next = value || '';
+  if (memory.historyAnchorTime === next) return;
+  memory.historyAnchorTime = next;
+  saveMemory();
 }
 
 /* ============ 迁移 v2 → v3 ============ */
@@ -294,10 +313,16 @@ function cleanSummaryNode(s: MemSummary, idx: number): MemSummary {
   };
 }
 
-function assignForest(target: BaibaiMemory, summaries: MemSummary[], varTemplates: Record<VarTier, VarTemplate>) {
+function assignForest(
+  target: BaibaiMemory,
+  summaries: MemSummary[],
+  varTemplates: Record<VarTier, VarTemplate>,
+  historyAnchorTime = '',
+) {
   target.version = MEMORY_VERSION;
   target.summaries = summaries.map(cleanSummaryNode);
   target.varTemplates = varTemplates;
+  target.historyAnchorTime = historyAnchorTime;
 }
 
 /** 读三层变量模板(chat 来自传入的 chatMetadata 原始值;global/char 来自 settings)。 */
@@ -318,15 +343,16 @@ export function loadMemory() {
   const chat = ctx?.chat ?? null;
   // 变量模板与 summary 迁移正交:chat 层从 metadata 直读,再取全局/角色层(缺失=空模板)
   const varTemplates = loadVarTemplates(raw?.varsTemplate);
+  const anchor = typeof raw?.historyAnchorTime === 'string' ? (raw.historyAnchorTime as string) : '';
 
   if (raw && typeof raw === 'object') {
     const version = typeof raw.version === 'number' ? raw.version : 1;
     if (version >= MEMORY_VERSION) {
-      assignForest(memory, (Array.isArray(raw.summaries) ? raw.summaries : []) as MemSummary[], varTemplates);
+      assignForest(memory, (Array.isArray(raw.summaries) ? raw.summaries : []) as MemSummary[], varTemplates, anchor);
     } else {
       const migrated = migrateV2toV3(raw, chat);
       if (migrated) {
-        assignForest(memory, migrated.summaries, varTemplates);
+        assignForest(memory, migrated.summaries, varTemplates, anchor);
         // 先把叶子落盘(saveChat)成功,再升 version 写 metadata,保证可重入
         flushLeavesNow();
         saveMemory();
@@ -335,11 +361,11 @@ export function loadMemory() {
         const comps = (Array.isArray(raw.summaries) ? raw.summaries : []).filter(
           (s: Record<string, unknown>) => (typeof s.level === 'number' ? s.level : 0) >= 1,
         ) as MemSummary[];
-        assignForest(memory, comps, varTemplates);
+        assignForest(memory, comps, varTemplates, anchor);
       }
     }
   } else {
-    assignForest(memory, [], varTemplates);
+    assignForest(memory, [], varTemplates, anchor);
   }
   recomputeDerived();
 }

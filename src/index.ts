@@ -1,5 +1,5 @@
 import { hydrateSettings } from '@/api/settings';
-import { bindEngine, handleGenerationIntercept } from '@/memory/engine';
+import { bindEngine, handleGenerationIntercept, repairHiddenNow } from '@/memory/engine';
 import { runVectorRecall, shouldRecallForType } from '@/memory/vector/recall';
 import { refreshInjection } from '@/memory/inject';
 import { syncTimeTagRegex } from '@/memory/timeTag';
@@ -140,6 +140,8 @@ function bindMemoryWhenReady(attempt = 0) {
       syncTimeTagRegex();
       // 首屏:把当前聊天已有的记忆挂上注入
       refreshInjection();
+      // 启动修复:keepRecent 调大后,把「窗口内但历史上被隐藏」的旧楼恢复全文(只恢复不隐藏)
+      void repairHiddenNow();
       // 楼内摘要锚点:按设置开关注入(bindFloorPanel 内 watch 开关 + 主题,immediate 首次同步)
       bindFloorPanel();
       // 后台检测更新(实时比对本地/远端 manifest 版本;失败静默,不阻断启动)

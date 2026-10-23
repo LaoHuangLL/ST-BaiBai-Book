@@ -476,6 +476,13 @@ export interface BaibaiMemory {
   vars: Record<string, JsonValue>;
   /** 真源:叶子摘要森林 */
   summaries: MemSummary[];
+  /**
+   * 摘要注入块的时间锚点(故事内时间字符串)。
+   * 每次批量隐藏提交时写入当时的 latestStoryTime,注入端用它算相对时间标签;
+   * 两次批量之间不随最新正文变化,保证注入块逐字节稳定(前缀缓存不失效)。
+   * 空串 = 尚未提交过,注入端回退 latestStoryTime(兼容老数据)。
+   */
+  historyAnchorTime: string;
 }
 
 export function createEmptyMemory(): BaibaiMemory {
@@ -492,6 +499,7 @@ export function createEmptyMemory(): BaibaiMemory {
     varTemplates: { global: { json: {}, meaning: '', rule: '' }, char: { json: {}, meaning: '', rule: '' }, chat: { json: {}, meaning: '', rule: '' } },
     vars: {},
     summaries: [],
+    historyAnchorTime: '',
   };
 }
 

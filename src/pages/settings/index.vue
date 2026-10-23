@@ -949,7 +949,12 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">保留最近 AI 消息数</span>
           <input v-model.number="apiSettings.keepRecent" class="bbs-input bbs-num" type="number" min="0" />
         </label>
-        <p class="bbs-field-hint">保留多少条 AI 消息发送全文,超出部分自动隐藏并发送摘要。</p>
+        <p class="bbs-field-hint">保留多少条 AI 消息发送全文,超出部分按下面的「批量隐藏」成批隐藏并改发摘要。默认 30:窗口内尽量保留原文,减少每轮隐藏造成的上下文抖动。</p>
+        <label class="bbs-num-row">
+          <span class="bbs-field-label">批量隐藏·每批楼数</span>
+          <input v-model.number="apiSettings.batchSize" class="bbs-input bbs-num" type="number" min="0" />
+        </label>
+        <p class="bbs-field-hint">攒够多少「已滑出保留窗口」的楼才一次性隐藏一批(每楼仍单独摘要)。两次批量之间不隐藏、不恢复任何楼,摘要注入块与聊天前缀保持不变,前缀缓存才能复用。0 = 关闭批量,退回逐轮隐藏。默认 10。注意:改「保留最近 AI 消息数」会立即校正一次隐藏。</p>
         <label class="bbs-num-row">
           <span class="bbs-field-label">每次总结 AI 消息数</span>
           <input v-model.number="apiSettings.leafBatchThreshold" class="bbs-input bbs-num" type="number" min="0" />
