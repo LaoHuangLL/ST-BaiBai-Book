@@ -312,6 +312,12 @@ describe('per-language custom prompts', () => {
     expect(batchThinking).toContain('floor');
     expect(resummaryThinkingChecklist()).not.toMatch(/[\u4e00-\u9fff]/);
     expect(resummaryThinkingChecklist()).toContain('summary');
+
+    // 资料包装(主角人设/世界书/角色卡)也不应残留中文固定措辞。
+    expect(buildPersonaSystem('P')).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(buildWorldInfoSystem('W')).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(buildCharCardSystem('C')).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(buildPersonaSystem('P')).toContain('[Protagonist Persona');
   });
 });
 

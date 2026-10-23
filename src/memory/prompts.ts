@@ -51,6 +51,7 @@ import resummary2Raw from './prompts/resummary2.txt?raw';
 import tasksRaw from './prompts/tasks.txt?raw';
 import builtinProtocolsRaw from './prompts/builtin-protocols.txt?raw';
 import dataWrappersRaw from './prompts/data-wrappers.txt?raw';
+import dataWrappersEnRaw from './prompts/en/data-wrappers.txt?raw';
 // 英文内置提示词:与中文文件逐行同构,材料/协议分界用 [PROTAGONIST] / [OUTPUT_PROTOCOL]。
 import summaryEnRaw from './prompts/en/summary.txt?raw';
 import resummaryEnRaw from './prompts/en/resummary.txt?raw';
@@ -483,6 +484,19 @@ export const RULE_VARS = `═══ 【自定义变量规则】(vars 字段,路�
 【自由创建(重点)】允许你按剧情**新建**状态树里还没有的字段/对象——例如遇到一个新势力,用 assign 在「势力」下加一个对象(键=势力名,值=含各属性的对象),遵循【变量变化规则】里的约定。
 【只改真正变的 · 防重复结算】当前状态已是结算到此刻的值。只对正文里**新发生**的事件发命令;没变的别发;上一段已经算过的账(如已 +5)本段无新事件就别再动。
 【克制】不确定、纯推测、正文没提 → 不发命令。宁可少发,命令要准。无任何变化时,vars 直接省略或给空数组。`;
+
+/** 自定义变量规则的英文版(英文档注入用;结构、命令语义与 RULE_VARS 一致)。 */
+export const RULE_VARS_EN = `═══ [Custom Variable Rules] (vars field, path commands) ═══
+The [Custom Variables · Current State] above is a JSON state tree settled up to now; [Variable Meanings] tells you what each field is; [Variable Change Rules] tells you when and how it changes, and whether new keys may be created.
+When this turn's prose contains explicit, concrete events that change the state, output a **command array** in the vars field to modify it. Each command is an object:
+  · set/overwrite: { "op":"set", "path":"path", "value":newValue }
+  · numeric add: { "op":"add", "path":"path", "delta":increment } (delta may be negative, e.g. -10)
+  · add into an object/array (including **creating a new object**): { "op":"assign", "path":"parentPath", "key":"newKey", "value":value }; to append to an array, omit key
+  · delete: { "op":"remove", "path":"path", "key":"key/index/value to delete" }; to delete a whole node, omit key and point path at it
+[Paths] use dots and brackets: "Faction.Magic Council.Reputation", "party[0].hp". Missing intermediate levels on the parent path are created automatically.
+[Free creation (important)] You may **create** fields/objects that do not exist yet, following the story — e.g. a new faction: assign an object under "Faction" (key = faction name, value = object of attributes), following the conventions in [Variable Change Rules].
+[Only real changes · no double settlement] The current state is already settled up to now. Only emit commands for events that **newly happen** in this prose; do not emit for unchanged values; do not re-apply a ledger already applied earlier (e.g. +5 already applied).
+[Restraint] If it is uncertain, pure speculation, or not stated in the prose → emit no command. Prefer fewer, accurate commands. If nothing changed, omit vars or return an empty array.`;
 
 /**
  * 摘要正文的时间语言铁律。所有摘要层级共用,自定义模板也会在构造时强制追加。
@@ -1246,12 +1260,16 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     summary_max_chars: String(currentVerbosity().summaryMaxChars),
     // 自定义变量三处:未配置变量(空状态 + 空说明)时全为空串(零 token 开销,老用户行为不变)
     vars_state_block: hasVars(a)
-      ? `- 自定义变量·当前状态(结算到此刻的 JSON,只读参考,严禁重复结算):\n${renderVarsState(a.varsState)}`
-        + (a.varsMeaning.trim() ? `\n- 变量含义(各字段是什么):\n${a.varsMeaning.trim()}` : '')
-        + (a.varsRule.trim() ? `\n- 变量变化规则(何时怎么改/可否新建):\n${a.varsRule.trim()}` : '')
+      ? (promptLangIsEn()
+        ? `- Custom variables · current state (JSON settled up to now; read-only reference; never re-settle):\n${renderVarsState(a.varsState)}`
+          + (a.varsMeaning.trim() ? `\n- Variable meanings (what each field is):\n${a.varsMeaning.trim()}` : '')
+          + (a.varsRule.trim() ? `\n- Variable change rules (when/how to change, whether new keys are allowed):\n${a.varsRule.trim()}` : '')
+        : `- 自定义变量·当前状态(结算到此刻的 JSON,只读参考,严禁重复结算):\n${renderVarsState(a.varsState)}`
+          + (a.varsMeaning.trim() ? `\n- 变量含义(各字段是什么):\n${a.varsMeaning.trim()}` : '')
+          + (a.varsRule.trim() ? `\n- 变量变化规则(何时怎么改/可否新建):\n${a.varsRule.trim()}` : ''))
       : '',
-    vars_field: hasVars(a) ? VARS_FIELD_TMPL : '',
-    vars_rule: hasVars(a) ? `\n${RULE_VARS}\n` : '',
+    vars_field: hasVars(a) ? pick(VARS_FIELD_TMPL, VARS_FIELD_TMPL_EN) : '',
+    vars_rule: hasVars(a) ? `\n${pick(RULE_VARS, RULE_VARS_EN)}\n` : '',
     // 供自定义模板单独取用的原始块
     vars_block: renderVarsState(a.varsState),
     varlog_block: [a.varsMeaning.trim(), a.varsRule.trim()].filter(Boolean).join('\n\n') || pickLang('(无)', '(none)'),
@@ -1296,6 +1314,10 @@ function hasVars(a: BuildArgs): boolean {
 /** vars 字段的 JSON 模板片段(接在 plans 之后,故带前导逗号)。命令数组,见【自定义变量规则】。 */
 const VARS_FIELD_TMPL = `,
   "vars": [ { "op": "set|add|assign|remove", "path": "点/括号路径", "key": "assign/remove 用(可选)", "value": "set/assign 用(可选)", "delta": "add 用的数字(可选)" } ]`;
+
+/** vars 字段 JSON 模板的英文版。 */
+const VARS_FIELD_TMPL_EN = `,
+  "vars": [ { "op": "set|add|assign|remove", "path": "dot/bracket path", "key": "for assign/remove (optional)", "value": "for set/assign (optional)", "delta": "number for add (optional)" } ]`;
 
 /** 生活小档案字段的 JSON 模板片段(接在 plans 之后,故带前导逗号)。 */
 const LIFE_DETAILS_FIELD_TMPL = `,
@@ -1414,18 +1436,25 @@ export function buildResummaryPrompt(
  * 字段已由调用方(fetchUserPersona)展开宏;这里只描述它是「主角本人设定」,与角色卡区分。
  */
 /** 资料包装模板(09):固定措辞 + 动态资料占位,直接取自原文,避免手抄走样。 */
-const DATA_WRAPPERS = (() => {
+function parseWrappers(raw: string, header: RegExp): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const block of dataWrappersRaw.split(/\n\s*\n(?=【)/)) {
-    const name = block.match(/^【([^】]+)】/)?.[1];
+  for (const block of raw.split(/\n\s*\n(?=(?:【|\[))/)) {
+    const name = block.match(header)?.[1];
     if (name) out[name] = block.replace(/〔[^〕]*〕[\s\S]*$/, '').replace(/\s+$/, '');
   }
   return out;
-})();
+}
+const DATA_WRAPPERS = parseWrappers(dataWrappersRaw, /^【([^】]+)】/);
+const DATA_WRAPPERS_EN = parseWrappers(dataWrappersEnRaw, /^\[([^\]]+)\]/);
+const DATA_WRAPPER_KEYS = Object.keys(DATA_WRAPPERS);
+const DATA_WRAPPER_EN_VALUES = Object.keys(DATA_WRAPPERS_EN).map(k => DATA_WRAPPERS_EN[k]);
 function dataWrapper(prefix: string): string {
   const want = prefix.replace(/^【/, '');
-  const key = Object.keys(DATA_WRAPPERS).find(k => k.startsWith(want));
-  return key ? DATA_WRAPPERS[key] : '';
+  const idx = DATA_WRAPPER_KEYS.findIndex(k => k.startsWith(want));
+  if (idx < 0) return '';
+  return promptLangIsEn()
+    ? (DATA_WRAPPER_EN_VALUES[idx] ?? DATA_WRAPPERS[DATA_WRAPPER_KEYS[idx]])
+    : DATA_WRAPPERS[DATA_WRAPPER_KEYS[idx]];
 }
 
 export function buildPersonaSystem(persona: string): string {
