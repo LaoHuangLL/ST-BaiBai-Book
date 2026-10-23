@@ -760,6 +760,21 @@ ${EN_RULE_SUMMARY_WRITE}
  * 批量摘要的思考清单(压在 user 之后)。保留逐楼对齐与时间检查,
  * 共用事实整理流程,不引入单楼的物品/NPC 等状态更新盘点。
  */
+const BATCH_THINKING_CHECKLIST_EN = `[Pre-output thinking (per-floor check)]
+${EN_SUMMARY_SPLIT.protocol}
+Complete the following checks in floor order inside one check block; only then close the block and output JSON:
+1. Per-floor mapping: this batch has {{floor_count}} floors. Produce exactly one array element per floor, strictly in order, n = 1..{{floor_count}} — no skip, no duplicate, no reordering.
+2. Monotonic, complete times: mark start and end for each floor; a later floor must not be earlier than the previous one; if there is no evidence, infer plausibly from elapsed story time. Numeric dates must include a full year at both ends — never abbreviate to a month/day or a bare clock time.
+3. Stopping point: each floor's summary stops at the last explicit action in that floor's prose — do not continue, do not cross into the next floor.
+4. Summary + time only: each element contains only n / summary / timeStart / timeEnd; do not output items, plans, locations or similar fields.
+
+For each floor, note key choices or corrections as "floor n", check the points below in order, and do not restate the prose. Earlier floors are history only — never borrow later floors to complete the current floor's conclusion. [M#-P#] markers in the prose are locators only, not the result's n.
+${EN_SUMMARY_FACT_PREPARATION}
+
+${EN_SUMMARY_FACT_VERIFICATION}
+
+After checking every floor, close </thinking> and output the JSON object (root key floors) with no markdown fence and no extra explanation.`;
+
 export const BATCH_THINKING_CHECKLIST = `【输出前思考(逐楼核查)】
 ${SUMMARY_OUTPUT_PROTOCOL}
 在同一个检查块内按楼层顺序完成以下检查,全部完成后闭合检查块再输出 JSON:
@@ -817,6 +832,11 @@ export const RESUMMARY2_PROMPT = RESUMMARY2_BODY;
 
 /** 两级压缩沿用摘要的显式检查记录,但不执行物品/NPC 等状态更新。 */
 export const RESUMMARY_THINKING_CHECKLIST = protocolSection('RESUMMARY_THINKING_CHECKLIST');
+
+/** 当前语言的二次总结检查清单(英文档不落回中文协议)。 */
+export function resummaryThinkingChecklist(): string {
+  return promptLangIsEn() ? protocolSectionEn('RESUMMARY_THINKING_CHECKLIST') : RESUMMARY_THINKING_CHECKLIST;
+}
 
 /**
  * 破限提示词默认值:作为置顶 system 附加在摘要/总结请求里,降低副 API 对露骨/暴力内容的拒答率。
@@ -1332,7 +1352,8 @@ export function buildBatchSummaryPrompt(a: BatchBuildArgs): { system: string; us
 
 /** 填充批量思考清单里的 {{floor_count}} 宏。 */
 export function buildBatchThinking(floorCount: number): string {
-  return fill(BATCH_THINKING_CHECKLIST, { floor_count: String(floorCount) });
+  const tmpl = promptLangIsEn() ? BATCH_THINKING_CHECKLIST_EN : BATCH_THINKING_CHECKLIST;
+  return fill(tmpl, { floor_count: String(floorCount) });
 }
 
 /**
@@ -1362,8 +1383,8 @@ export function buildResummaryPrompt(
   const builtin = isSecond ? RESUMMARY2_PROMPT : RESUMMARY_PROMPT;
   const targets = isSecond ? resummary2Targets(a.content.length) : { min: 0, max: 0 };
   const macros = {
-    user: a.user || '主角',
-    char: a.char || '角色',
+    user: a.user || pickLang('主角', 'the protagonist'),
+    char: a.char || pickLang('角色', 'the character'),
     content: a.content,
     resummary_words: currentVerbosity().resummaryWords,
     target_min: isSecond ? String(targets.min) : '',
@@ -1432,10 +1453,12 @@ export function buildCharCardSystem(charCard: string): string {
  * 但字段名/格式全部对齐 BaiBai 的 JSON(summary/time/location/items/plans),不提 <horae> 标签。
  */
 export const THINKING_CHECKLIST = protocolSection('THINKING_CHECKLIST');
+const THINKING_CHECKLIST_EN = protocolSectionEn('THINKING_CHECKLIST');
 
 /** 与批量清单一样在发送前展开宏,不把占位符留给渠道处理。 */
 export function buildSummaryThinking(user: string): string {
-  return fill(THINKING_CHECKLIST, { user: user || '主角' });
+  const tmpl = promptLangIsEn() ? THINKING_CHECKLIST_EN : THINKING_CHECKLIST;
+  return fill(tmpl, { user: user || pickLang('主角', 'the protagonist') });
 }
 
 /* ============ 向量召回:查询重写(Query Rewrite) ============ */

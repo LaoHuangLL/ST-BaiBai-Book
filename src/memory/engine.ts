@@ -9,7 +9,7 @@ import { addSummary, classifyNpcPresence, deriveMemory, finalizeDelta, fmtVarOps
 import { extractJsonObject } from './json';
 import { fmtConditionFragments } from './conditionPatch';
 import { clearInjection, refreshInjection, renderHistoryNodes, selectHistoryNodesBefore } from './inject';
-import { buildBatchSummaryPrompt, buildBatchThinking, buildCharCardSystem, buildPersonaSystem, buildResummaryPrompt, buildSummaryPrompt, buildSummaryThinking, buildWorldInfoSystem, builtinJailbreak, fmtItemLogInline, isBuiltinSummaryPrompt, RESUMMARY_THINKING_CHECKLIST, selectRecentResolvedPlans } from './prompts';
+import { buildBatchSummaryPrompt, buildBatchThinking, buildCharCardSystem, buildPersonaSystem, buildResummaryPrompt, buildSummaryPrompt, buildSummaryThinking, buildWorldInfoSystem, builtinJailbreak, fmtItemLogInline, isBuiltinSummaryPrompt, resummaryThinkingChecklist, selectRecentResolvedPlans } from './prompts';
 import { clampToTimeTags, cleanBody, latestStoryTime, parseTimeRange, syncTimeTagRegex, writeItemLogTag, writeVarLogTag } from './timeTag';
 import { renderSourceHints, type SourceExcerpt } from './sourceHints';
 import { memory, recomputeDerived, scheduleLeafFlush, setHistoryAnchorTime } from './store';
@@ -1691,7 +1691,7 @@ export async function checkResummary(): Promise<number> {
       messages.push(
         { role: 'system', content: prompt.system },
         { role: 'user', content: prompt.user + hints },
-        { role: 'system', content: RESUMMARY_THINKING_CHECKLIST },
+        { role: 'system', content: resummaryThinkingChecklist() },
       );
       // 发请求 + 解析,失败按设置重试(请求报错或 JSON 无效/缺 summary 都算失败)
       const delta = await sendAndParse(sender.send, messages, raw => {
@@ -1852,7 +1852,7 @@ export async function summarizeSelected(nodeIds: string[]): Promise<{ made: numb
     messages.push(
       { role: 'system', content: prompt.system },
       { role: 'user', content: prompt.user + hints },
-      { role: 'system', content: RESUMMARY_THINKING_CHECKLIST },
+      { role: 'system', content: resummaryThinkingChecklist() },
     );
     const delta = await sendAndParse(sender.send, messages, raw => {
       console.log('[柏宝书] 强制总结原始返回(未清洗):\n', raw);

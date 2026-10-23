@@ -22,6 +22,7 @@ import {
   RESUMMARY_PROMPT,
   RESUMMARY2_PROMPT,
   RESUMMARY_THINKING_CHECKLIST,
+  resummaryThinkingChecklist,
   ruleSectionCatalog,
   splitRuleSections,
   SUMMARY_MACROS,
@@ -301,6 +302,16 @@ describe('per-language custom prompts', () => {
     expect(user).toContain('[PROTAGONIST]');
     expect(user).toContain('[CURRENT_KNOWN_STATE]');
     expect(system.length).toBeGreaterThan(1000);
+
+    // 思维链/检查清单也必须是英文:曾经英文档仍发中文「输出前核查」被用户抓到。
+    const thinking = buildSummaryThinking('User');
+    expect(thinking).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(thinking).toContain('[Pre-output Check]');
+    const batchThinking = buildBatchThinking(3);
+    expect(batchThinking).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(batchThinking).toContain('floor');
+    expect(resummaryThinkingChecklist()).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(resummaryThinkingChecklist()).toContain('summary');
   });
 });
 
