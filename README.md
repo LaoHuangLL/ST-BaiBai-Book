@@ -1,4 +1,52 @@
-# 柏宝书 · SillyTavern 记忆引擎
+# 柏宝书 · SillyTavern 记忆引擎（LaoHuangLL Fork）
+
+> 本仓库 fork 自 [baibai-git/ST-BaiBai-Book](https://github.com/baibai-git/ST-BaiBai-Book)。上游每轮都会隐藏一层旧楼，导致聊天顶部的摘要注入块每轮变化、前缀缓存从注入点起整段失效；本 fork 增加「批量隐藏」机制，用更少的缓存断点换同样的长对话记忆效果。安装地址见文末「安装」。
+
+---
+
+## 🔀 本 fork 与上游的区别
+
+### 新增功能
+
+| 功能 | 说明 |
+|---|---|
+| **批量隐藏 `batchSize`** | 新增设置项「批量隐藏·每批楼数」，默认 10。攒够 10 个「已滑出保留窗口」的楼层才一次性隐藏；两次批量之间不产生任何 `/hide`、`/unhide`。设为 0 则退回上游的逐轮隐藏。 |
+| **保留窗口放大** | `keepRecent` 默认值 3 → 30，原文楼层留得更久，隐藏动作更稀疏。 |
+| **隐藏锚点 `historyAnchorTime`** | 每次批量提交时记下故事内时间，注入块的相对时间（「3 小时前」）以它为基准，两次批量之间逐字节不变。 |
+| **启动修复 `repairHiddenNow()`** | 启动、切聊天、调大保留窗口后，只恢复「按当前窗口不该隐藏」的楼层，绝不新增隐藏。 |
+| **设置页新行** | 摘要设置里新增「批量隐藏·每批楼数」输入，带说明。 |
+
+### 行为改动对照
+
+| 项目 | 上游（原版） | 本 fork |
+|---|---|---|
+| 自动隐藏触发 | 每轮摘要完成后同步一次，滑出 1 层藏 1 层 | 攒够 `batchSize` 才提交一批 |
+| 两次批量之间 | —— | 隐藏状态完全不动（自愈除外） |
+| 保留窗口默认 | `keepRecent=3` | `keepRecent=30` |
+| 注入块时间基准 | 每轮 `latestStoryTime(chat)` 重算 | 批量提交时刻写入的 `historyAnchorTime` |
+| 层级总结 `checkResummary` | 每次摘要后立即跑 | 推迟到批量提交时 |
+| 摘要生成 | 每楼单独一次请求 | **不变**（待摘楼逐楼补摘，不合并、不降质） |
+| 导入历史 / 删总结 / 改覆盖截止 | 立即同步隐藏 | 仍立即同步（force/repair，不等攒批） |
+
+### 怎么实现的
+
+- **计划与执行分离**：新增纯函数 `planWindowHide(chat)`（[engine.ts:897](src/memory/engine.ts#L897)），输出 `toHide / toUnhide / pending` 三份名单并可直接单测；原 `/unhide`、`/hide` 执行体抽成 [`applyWindowHiddenChanges()`](src/memory/engine.ts#L969)（engine.ts:969），仍走 ST 原生 `/hide`、`/unhide`，失败照旧回退为直接写 `is_system`。
+- **三模式同步**：[`syncWindowHiddenState(chat, mode)`](src/memory/engine.ts#L939)（engine.ts:939）——`auto` 按阈值门控、`force` 立即同步（导入/删总结/改窗口）、`repair` 只恢复不隐藏（启动修复）。auto 未达阈值时直接 `return false`，一个隐藏位都不动。
+- **锚点持久化**：`historyAnchorTime` 存进 `chatMetadata.baibai_book`（[store.ts:157](src/memory/store.ts#L157)、store.ts:320），注入侧改为 `getHistoryAnchorTime() || latestStoryTime(chat)`（[inject.ts:285](src/memory/inject.ts#L285)），老数据没有锚点时在修复阶段补写。
+- **推迟层级压缩**：`runSummaryInner` 里改为 `batchSize <= 0` 才即时 `checkResummary()`（[engine.ts:1327](src/memory/engine.ts#L1327)），避免两次批量之间新总结改变注入节点集合。
+- **默认值与迁移**：[settings.ts:353-354](src/api/settings.ts#L353) 改默认，[settings.ts:490-496](src/api/settings.ts#L490) 归一化并做一次性迁移；[index.ts:144](src/index.ts#L144) 启动时调用 `repairHiddenNow()`。
+
+### 兼容与迁移
+
+- 老配置（没有 `batchSize` 键）且 `keepRecent` 仍是 3 的，自动迁移为 30；手动改过保留窗口的不动。
+- `batchSize=0` → 完全退回上游「每轮藏一层」的行为。
+- 手动 `/unhide` 的楼层：`bbs_hidden` 标记仍在，下一批触发时会被重新隐藏（自愈）。
+- 想恢复原版手感：把「保留最近 AI 消息数」改回 3、每批楼数改 0 即可。
+- 摘要质量不变：每楼仍单独一次摘要调用，批量只影响「藏」的时机。
+
+---
+
+## 上游原版介绍
 
 > 让你的角色真正「记得住」。柏宝书是一个为 SillyTavern 打造的长期记忆扩展——它会一边陪你聊，一边默默把剧情整理成摘要、盘点物品、记住登场人物、梳理来龙去脉，再在恰当的时候把这些记忆悄悄递给 AI。既省 token，又让长篇对话前后连贯、不失忆、不崩人设。
 
@@ -52,11 +100,13 @@
 
 ## 安装
 
-在 SillyTavern 的「扩展 → 安装扩展」里填入本仓库地址即可：
+在 SillyTavern 的「扩展 → 安装扩展」里填入**本 fork** 的地址即可：
 
 ```
-https://github.com/baibai-git/ST-BaiBai-Book
+https://github.com/LaoHuangLL/ST-BaiBai-Book
 ```
+
+> 想用上游原版：[baibai-git/ST-BaiBai-Book](https://github.com/baibai-git/ST-BaiBai-Book)（无批量隐藏）。两个地址装一个即可，扩展目录名相同，切换时先删旧目录。
 
 安装后进入柏宝书的「设置」页，打开总开关「柏宝书 · 记忆引擎」，按需配置摘要与向量记忆，就能开始使用了。设置会随 SillyTavern 保存在服务器，跨设备、跨局域网自动同步。
 
