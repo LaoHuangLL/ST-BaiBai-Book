@@ -60,6 +60,12 @@ export interface CustomPrompts {
   jailbreak: string;
   /** 固定提示词(时间标签):注入**主对话**模型,要求每条正文前后输出时间标签;空=用内置默认。 */
   timeTag: string;
+  /**
+   * 内置规则段落覆盖:key 为段落标题名(与 prompts.ts 的规则段标题一致),
+   * 非空串则替换该段内置文本。用于「时间规则 / 摘要撰写规则 / 关系线保留 / 时间语言铁律」等
+   * 原本写死在代码里的段落——中英两套各自保存,切换语言互不影响。
+   */
+  blocks: Record<string, string>;
 }
 
 /**
@@ -71,7 +77,17 @@ export type CustomPromptsByLang = Record<PromptLang, CustomPrompts>;
 
 /** 一套空的自定义提示词(全部回落内置)。 */
 function emptyPromptSet(): CustomPrompts {
-  return { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '' };
+  return { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '', blocks: {} };
+}
+
+/** 规则段落覆盖:只保留「键是字符串、值是非空字符串」的条目。 */
+function normalizeBlocks(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && v.trim()) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -397,6 +413,7 @@ function normalizePromptSet(raw: unknown): CustomPrompts {
     resummary2: typeof r.resummary2 === 'string' ? r.resummary2 : '',
     jailbreak: typeof r.jailbreak === 'string' ? r.jailbreak : '',
     timeTag: typeof r.timeTag === 'string' ? r.timeTag : '',
+    blocks: normalizeBlocks(r.blocks),
   };
 }
 
@@ -653,7 +670,10 @@ function applyInto(target: ApiSettings, src: ApiSettings): void {
   target.enabled = src.enabled;
   target.ui = src.ui;
   // prompts 两套都深拷贝一份,避免把 extension_settings 里的原始对象引用挂进 reactive
-  target.prompts = { zh: { ...src.prompts.zh }, en: { ...src.prompts.en } };
+  target.prompts = {
+    zh: { ...src.prompts.zh, blocks: { ...src.prompts.zh.blocks } },
+    en: { ...src.prompts.en, blocks: { ...src.prompts.en.blocks } },
+  };
   target.promptLang = src.promptLang;
   target.verbosity = src.verbosity;
   target.vector = src.vector;

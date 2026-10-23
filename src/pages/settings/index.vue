@@ -15,7 +15,9 @@ import {
   RESUMMARY_PROMPT,
   SUMMARY_MACROS,
   SUMMARY_PROMPT,
+  ruleSectionCatalog,
   type PromptMacro,
+  type RuleSection,
 } from '@/memory/prompts';
 import { TIME_TAG_PROMPT } from '@/memory/timeTag';
 import { clearVectorIndex, syncVectorIndex } from '@/memory/vector';
@@ -325,6 +327,45 @@ function savePrompt() {
 // 「恢复默认」:把草稿重置回内置模板(保存后即回落内置)
 function resetPrompt() {
   if (editingPrompt.value) promptDraft.value = editingPrompt.value.builtin;
+}
+
+/* —— 内置规则段落:按「═══ 【名】…」标题逐段覆盖(时间规则/摘要撰写规则/关系线保留/时间语言铁律…) ——
+ * 覆盖存进当前语言档的 prompts[lang].blocks,标题名即 key;没改过的段落继续跟随代码更新。 */
+const ruleSections = computed(() => ruleSectionCatalog());
+const editingBlock = ref<RuleSection | null>(null);
+const blockDraft = ref('');
+const blockArea = ref<HTMLTextAreaElement | null>(null);
+
+function blockOverride(label: string): string {
+  return activePrompts().blocks?.[label]?.trim() ?? '';
+}
+function isBlockCustom(label: string): boolean {
+  return blockOverride(label).length > 0;
+}
+function openBlock(s: RuleSection) {
+  editingBlock.value = s;
+  blockDraft.value = blockOverride(s.label) || s.text;
+}
+function closeBlock() {
+  editingBlock.value = null;
+  blockDraft.value = '';
+}
+function saveBlock() {
+  const s = editingBlock.value;
+  if (!s) return;
+  const v = blockDraft.value.trim();
+  const blocks = activePrompts().blocks;
+  if (!v || v === s.text.trim()) delete blocks[s.label];
+  else blocks[s.label] = blockDraft.value;
+  closeBlock();
+  toast('已保存,下轮摘要生效');
+}
+function resetBlock() {
+  const s = editingBlock.value;
+  if (!s) return;
+  delete activePrompts().blocks[s.label];
+  closeBlock();
+  toast('已恢复默认');
 }
 
 /* —— 向量记忆:三个模型角色,embedding 为基准,后两者留空复用它 —— */
@@ -1185,7 +1226,7 @@ function exportPublicApiDocument() {
           <span class="bbs-field-label">提示词语言</span>
           <BbsSelect v-model="apiSettings.promptLang" :options="PROMPT_LANG_OPTIONS" class="bbs-select-narrow" aria-label="自定义提示词语言" />
         </div>
-        <p class="bbs-field-hint">中英各存一套自定义提示词;切换语言只改读取的那套,不会覆盖另一套。留空即用内置中文模板。</p>
+        <p class="bbs-field-hint">中英各存一套自定义提示词;切换语言只改读取的那套,不会覆盖另一套。留空即用内置模板(内置模板随这里的语言切换中/英文)。</p>
         <ul class="bbs-prompt-list">
           <li v-for="m in PROMPT_METAS" :key="m.key" class="bbs-prompt-item">
             <button class="bbs-prompt-open" type="button" @click="openPrompt(m)">
@@ -1197,9 +1238,21 @@ function exportPublicApiDocument() {
             </button>
           </li>
         </ul>
+        <hr class="bbs-rule" />
+        <p class="bbs-field-label">内置规则段落(可逐段覆盖)</p>
+        <p class="bbs-field-hint">破限、时间规则、摘要撰写规则、关系线保留等原本写死在代码里的段落,现在可以单独改。只覆盖你改的那一段,其余继续跟随内置更新;中英各存各的。</p>
+        <ul class="bbs-prompt-list">
+          <li v-for="s in ruleSections" :key="s.label" class="bbs-prompt-item">
+            <button class="bbs-prompt-open" type="button" @click="openBlock(s)">
+              <span class="bbs-prompt-name">{{ s.label }}</span>
+              <span class="bbs-prompt-state" :class="{ 'is-custom': isBlockCustom(s.label) }">
+                {{ isBlockCustom(s.label) ? '已覆盖' : '默认' }}
+              </span>
+              <Icon name="edit" class="bbs-prompt-edit" />
+            </button>
+          </li>
+        </ul>
       </Collapsible>
-
-      <!-- 向量记忆 -->
       <Collapsible title="向量记忆" :open="false">
         <label class="bbs-switch-row bbs-vec-enable">
           <span class="bbs-field-label">启用向量记忆</span>
@@ -1860,6 +1913,34 @@ function exportPublicApiDocument() {
           <span class="bbs-modal-foot-spacer"></span>
           <button class="bbs-btn" type="button" @click="closePrompt">取消</button>
           <button class="bbs-btn bbs-btn-primary" type="button" @click="savePrompt">完成</button>
+        </footer>
+      </div>
+    </ModalMask>
+
+    <!-- ===== 内置规则段落:单段编辑弹窗 ===== -->
+    <ModalMask :open="!!editingBlock" @close="closeBlock">
+      <div v-if="editingBlock" class="bbs-modal bbs-modal-wide" role="dialog" aria-modal="true" :aria-label="`编辑段落 ${editingBlock.label}`">
+        <header class="bbs-modal-head">
+          <span class="bbs-modal-title">编辑段落 · {{ editingBlock.label }}</span>
+          <button class="bbs-icon-mini" type="button" title="关闭" @click="closeBlock"><Icon name="close" /></button>
+        </header>
+
+        <p class="bbs-modal-label">只覆盖「{{ editingBlock.label }}」这一段(含标题行)。留空或与默认一致即恢复内置,其余段落不受影响。</p>
+
+        <textarea
+          v-model="blockDraft"
+          class="bbs-input bbs-prompt-area"
+          spellcheck="false"
+          rows="16"
+        ></textarea>
+
+        <footer class="bbs-modal-foot">
+          <button class="bbs-btn bbs-btn-danger" type="button" @click="resetBlock">
+            <Icon name="refresh" /> 恢复默认
+          </button>
+          <span class="bbs-modal-foot-spacer"></span>
+          <button class="bbs-btn" type="button" @click="closeBlock">取消</button>
+          <button class="bbs-btn bbs-btn-primary" type="button" @click="saveBlock">完成</button>
         </footer>
       </div>
     </ModalMask>

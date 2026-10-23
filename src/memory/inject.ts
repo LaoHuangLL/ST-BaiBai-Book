@@ -14,7 +14,7 @@ import { apiSettings, engineActiveHere } from '@/api/settings';
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
 import { buildSceneLocationIndex, classifyNpcPresence, findCurrentSceneId, getLeaf, itemReachableAtScene, leafValid } from './apply';
-import { fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, MEMORY_BRIEFING_NOTE, MEMORY_BRIEFING_END } from './prompts';
+import { fmtItems, fmtPlans, fmtResolvedPlans, renderVarsState, selectRecentResolvedPlans, injectLabel, memoryBriefingEnd, memoryBriefingNote } from './prompts';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtNpcAffinity, fmtNpcTiesContext, NPC_AFFINITY_BRIEFING } from './npcRelations';
 import { getHistoryAnchorTime, memory } from './store';
@@ -283,7 +283,7 @@ export function buildHistoryInjectionText(): string {
   // 不随最新楼变化,注入块逐字节稳定(前缀缓存不失效)。
   // 首尾私密简报框定,避免主模型把摘要当成要复述/输出的模板
   const now = getHistoryAnchorTime() || latestStoryTime(chat);
-  return `${MEMORY_BRIEFING_NOTE}\n[历史剧情摘要]\n${renderHistoryNodesWithRelative(sums, now)}\n${MEMORY_BRIEFING_END}`;
+  return `${memoryBriefingNote()}\n${injectLabel('history')}\n${renderHistoryNodesWithRelative(sums, now)}\n${memoryBriefingEnd()}`;
 }
 
 /**
@@ -646,7 +646,7 @@ export function buildStateInjectionText(): string {
   const hasState = memory.state.time || memory.state.location || (inj.sceneFocus && memory.state.sceneFocus) || hasProtagonist || (itemsOn && memory.items.length) || (scenesOn && memory.scenes.length) || (npcsOn && memory.npcs.length) || openPlans.length || hasVarState || (inj.lifeDetails && memory.lifeDetails.length);
   if (!hasState) return '';
   // 首尾私密简报框定,避免主模型把状态快照当成要复述/输出的模板(正文后跟吐一份状态)
-  return `${MEMORY_BRIEFING_NOTE}\n[当前状态]\n${st.join('\n')}\n${MEMORY_BRIEFING_END}`;
+  return `${memoryBriefingNote()}\n${injectLabel('state')}\n${st.join('\n')}\n${memoryBriefingEnd()}`;
 }
 
 /**

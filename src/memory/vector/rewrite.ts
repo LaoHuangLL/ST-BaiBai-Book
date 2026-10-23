@@ -19,7 +19,7 @@ import { activePrompts, apiSettings, resolveVectorModel } from '@/api/settings';
 import { deriveMemory, getLeaf, leafValid } from '../apply';
 import { resolveKeepStart } from '../engine';
 import { renderHistoryNodes, selectHistoryNodesBefore } from '../inject';
-import { fmtItems, fmtNpcs, fmtPlans, fmtProtagonist, JAILBREAK_PROMPT, QUERY_REWRITE_SYSTEM, QUERY_REWRITE_TAIL } from '../prompts';
+import { fmtItems, fmtNpcs, fmtPlans, fmtProtagonist, builtinJailbreak, injectLabel, queryRewriteSystem, queryRewriteTail } from '../prompts';
 import { memory } from '../store';
 import { cleanBody } from '../timeTag';
 import { fetchWithTimeoutRetry } from './embed';
@@ -101,8 +101,8 @@ function buildMessages(chat: STMessage[]): ChatMsg[] {
   // 既保证 system 只出现在开头,也让破限处于请求最前。核心不写进重写正文,统一由破限位提供
   // (自定义优先,留空用内置 NVWA 核心)。
   const history = renderHistoryNodes(selectHistoryNodesBefore(memory.summaries, chat, windowStart));
-  const body = history ? `${QUERY_REWRITE_SYSTEM}\n\n[历史剧情摘要]\n${history}` : QUERY_REWRITE_SYSTEM;
-  const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
+  const body = history ? `${queryRewriteSystem()}\n\n${injectLabel('history')}\n${history}` : queryRewriteSystem();
+  const jb = activePrompts().jailbreak.trim() || builtinJailbreak();
   const systemContent = `${jb}\n\n${body}`;
   const messages: ChatMsg[] = [{ role: 'system', content: systemContent }];
 
@@ -144,7 +144,7 @@ function buildMessages(chat: STMessage[]): ChatMsg[] {
   for (const c of convo) messages.push({ role: c.role, content: c.content });
 
   // 收尾提示词
-  messages.push({ role: 'user', content: QUERY_REWRITE_TAIL });
+  messages.push({ role: 'user', content: queryRewriteTail() });
   return messages;
 }
 

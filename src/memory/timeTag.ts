@@ -10,6 +10,7 @@
  */
 
 import { activePrompts, apiSettings } from '@/api/settings';
+import { EN_TIME_TAG_PROMPT } from './prompts/en/strings';
 import { getContext, type STMessage } from '@/st/context';
 import { stripBaiBaiImageTags } from './imageTag';
 import type { LeafExtra } from './types';
@@ -72,7 +73,7 @@ ${LEDGER_PROTOCOL}`;
 /** 当前生效的固定提示词(用户自定义优先,空则用内置默认)。 */
 export function timeTagPrompt(): string {
   const custom = activePrompts().timeTag.trim();
-  return custom || TIME_TAG_PROMPT;
+  return custom || (apiSettings.promptLang === 'en' ? EN_TIME_TAG_PROMPT : TIME_TAG_PROMPT);
 }
 
 // 解析用正则:容忍标签名大小写与首尾空白;非贪婪取内部文本。

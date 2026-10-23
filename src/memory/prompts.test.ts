@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activePrompts, apiSettings } from '@/api/settings';
 import {
+  applyRuleOverrides,
   buildBatchSummaryPrompt,
   buildBatchThinking,
   buildCharCardSystem,
@@ -21,6 +22,8 @@ import {
   RESUMMARY_PROMPT,
   RESUMMARY2_PROMPT,
   RESUMMARY_THINKING_CHECKLIST,
+  ruleSectionCatalog,
+  splitRuleSections,
   SUMMARY_MACROS,
   SUMMARY_OUTPUT_PROTOCOL,
   SUMMARY_PROMPT,
@@ -286,5 +289,56 @@ describe('per-language custom prompts', () => {
     apiSettings.promptLang = 'en';
     expect(activePrompts().summary).toBe('EN {{content}}');
     expect(apiSettings.prompts.zh.summary).toBe('ZH {{content}}');
+  });
+
+  it('英文档发送的是英文内置模板,材料段以 [PROTAGONIST] 开头', () => {
+    apiSettings.promptLang = 'en';
+    apiSettings.prompts.en.summary = '';
+    const { system, user } = buildSummaryPrompt(args);
+    expect(system).not.toMatch(/[\u4e00-\u9fff]/);
+    expect(system).toContain('[Summary Writing Rules]');
+    // 材料段的结构锚点已英文化;其中由代码生成的状态块仍是旧中文格式(见 FAQ 待办),
+    // 因此这里只断言锚点与关键节标题,不断言整段无中文。
+    expect(user).toContain('[PROTAGONIST]');
+    expect(user).toContain('[CURRENT_KNOWN_STATE]');
+    expect(system.length).toBeGreaterThan(1000);
+  });
+});
+
+describe('内置规则段落覆盖', () => {
+  const originalBlocks = { ...(apiSettings.prompts.zh.blocks ?? {}) };
+
+  beforeEach(() => {
+    apiSettings.prompts.zh.blocks = {};
+  });
+  afterEach(() => {
+    apiSettings.prompts.zh.blocks = originalBlocks;
+  });
+
+  it('splitRuleSections 按标题行切段,忽略首个标题前的前言', () => {
+    const text = '前言\n═══ 【甲段】(说明) ═══\n- 甲一\n\n【乙段】 内容\n- 乙一\n- 乙二';
+    const sections = splitRuleSections(text);
+    expect(sections.map(s => s.label)).toEqual(['甲段', '乙段']);
+    expect(sections[0].text).toContain('- 甲一');
+    expect(sections[1].text).toContain('- 乙二');
+    expect(sections[0].text.startsWith('═══ 【甲段】')).toBe(true);
+  });
+
+  it('applyRuleOverrides 只替换命中的段落,其余原样保留', () => {
+    const text = '════ 【时间规则】 ═══\n旧规则\n\n════ 【关系线保留】 ═══\n旧关系\n';
+    apiSettings.prompts.zh.blocks = { 时间规则: '════ 【时间规则】 ═══\n新规则' };
+    const out = applyRuleOverrides(text);
+    expect(out).toContain('新规则');
+    expect(out).toContain('旧关系');
+    expect(out).not.toContain('旧规则');
+  });
+
+  it('ruleSectionCatalog 去重且包含用户关心的关键段落', () => {
+    const labels = ruleSectionCatalog().map(s => s.label);
+    expect(labels).toContain('摘要撰写规则');
+    expect(labels).toContain('摘要时间语言铁律');
+    expect(labels).toContain('关系线保留');
+    expect(labels).toContain('时间规则');
+    expect(new Set(labels).size).toBe(labels.length);
   });
 });

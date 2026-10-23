@@ -19,6 +19,30 @@ import { fmtConditionFragments } from './conditionPatch';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtNpcSummaryList, NPC_AFFINITY_FIELDS, type NpcSummaryView } from './npcRelations';
 import { RULE_COMPLETE_TIME_ANCHOR } from './timeTag';
+import {
+  EN_MEMORY_BRIEFING_END,
+  EN_MEMORY_BRIEFING_NOTE,
+  EN_QUERY_REWRITE_SYSTEM,
+  EN_QUERY_REWRITE_TAIL,
+  EN_TIME_TAG_PROMPT,
+} from './prompts/en/strings';
+import {
+  EN_JAILBREAK_PROMPT,
+  EN_LIFE_DETAILS_PROTOCOL_SUPPLEMENT,
+  EN_PROTAGONIST_PROTOCOL_SUPPLEMENT,
+  EN_RULE_ABSOLUTE_TIME_LANGUAGE,
+  EN_RULE_NPC_AFFINITY,
+  EN_RULE_RELATION_MOMENTUM,
+  EN_RULE_SUMMARY_WRITE,
+  EN_SCENE_FOCUS_PROTOCOL_SUPPLEMENT,
+  EN_SUMMARY_FACT_PREPARATION,
+  EN_SUMMARY_FACT_VERIFICATION,
+  EN_TIME_ANCHOR_PROTOCOL_SUPPLEMENT,
+  EN_TIME_FIELD_NO_TAGS,
+  EN_TIME_FIELD_WITH_TAGS,
+  EN_TIME_RULE_NO_TAGS,
+  EN_TIME_RULE_WITH_TAGS,
+} from './prompts/en/rules';
 // 新提示词正文以原版文本文件为准(?raw 内联,可原样保留排版与标签)。
 import summaryRaw from './prompts/summary.txt?raw';
 import resummaryRaw from './prompts/resummary.txt?raw';
@@ -26,6 +50,11 @@ import resummary2Raw from './prompts/resummary2.txt?raw';
 import tasksRaw from './prompts/tasks.txt?raw';
 import builtinProtocolsRaw from './prompts/builtin-protocols.txt?raw';
 import dataWrappersRaw from './prompts/data-wrappers.txt?raw';
+// 英文内置提示词:与中文文件逐行同构,材料/协议分界用 [PROTAGONIST] / [OUTPUT_PROTOCOL]。
+import summaryEnRaw from './prompts/en/summary.txt?raw';
+import resummaryEnRaw from './prompts/en/resummary.txt?raw';
+import resummary2EnRaw from './prompts/en/resummary2.txt?raw';
+import builtinProtocolsEnRaw from './prompts/en/builtin-protocols.txt?raw';
 import type { ItemLogEntry, JsonValue, MemLifeDetail, MemPlan, MemProtagonist, PlanOutcome, SceneFocus } from './types';
 
 /** 按「===== NAME =====」分节解析协议文件(08)。 */
@@ -72,6 +101,43 @@ const RESUMMARY2_BODY = afterStandaloneCore(resummary2Raw);
 const SUMMARY_SPLIT = splitPrompt(SUMMARY_BODY);
 const RESUMMARY_SPLIT = splitPrompt(RESUMMARY_BODY);
 const RESUMMARY2_SPLIT = splitPrompt(RESUMMARY2_BODY);
+
+/* ───────── 英文内置模板 ─────────
+ * 英文文件用 [PROTAGONIST] {{user}} 开始材料段、[OUTPUT_PROTOCOL] 开始协议段,
+ * 其余结构与中文逐行对齐;设置里 promptLang 切到 en 时,摘要/压缩/批量都走这套。 */
+const PROTOCOLS_EN = protocolSections(builtinProtocolsEnRaw);
+/** 英文协议分节(节名与中文一致,内容已译)。 */
+function protocolSectionEn(prefix: string): string {
+  const key = Object.keys(PROTOCOLS_EN).find(k => k.startsWith(prefix));
+  return key ? PROTOCOLS_EN[key] : '';
+}
+
+function splitPromptEn(raw: string): { rules: string; input: string; protocol: string } {
+  const i = raw.indexOf('[PROTAGONIST] {{user}}');
+  const j = raw.indexOf('[OUTPUT_PROTOCOL]', i >= 0 ? i : 0);
+  return {
+    rules: (i >= 0 ? raw.slice(0, i) : raw).trim(),
+    input: (i >= 0 ? raw.slice(i, j >= 0 ? j : undefined) : '').trim(),
+    protocol: (j >= 0 ? raw.slice(j) : '').trim(),
+  };
+}
+
+const EN_SUMMARY_SPLIT = splitPromptEn(afterStandaloneCore(summaryEnRaw));
+const EN_RESUMMARY_SPLIT = splitPromptEn(afterStandaloneCore(resummaryEnRaw));
+const EN_RESUMMARY2_SPLIT = splitPromptEn(afterStandaloneCore(resummary2EnRaw));
+
+/** 当前语言档对应的三段拆分。 */
+function langSplits() {
+  return apiSettings.promptLang === 'en'
+    ? { summary: EN_SUMMARY_SPLIT, resummary: EN_RESUMMARY_SPLIT, resummary2: EN_RESUMMARY2_SPLIT }
+    : { summary: SUMMARY_SPLIT, resummary: RESUMMARY_SPLIT, resummary2: RESUMMARY2_SPLIT };
+}
+
+const isEn: () => boolean = () => apiSettings.promptLang === 'en';
+/** 按当前语言档二选一(英文档没有对应译文时仍回中文,保证不出现空串)。 */
+function pick(zh: string, en: string): string {
+  return isEn() && en ? en : zh;
+}
 
 /** 伤情局部更新协议(08 内置;片段编号由请求动态附加)。 */
 export const CONDITION_PATCH_PROTOCOL = protocolSection('CONDITION_PATCH_PROTOCOL');
@@ -141,6 +207,21 @@ export const MEMORY_BRIEFING_NOTE = protocolSection('MEMORY_BRIEFING_NOTE');
  * 简报的用途是「我已知道这些」,正文里自然体现即可。
  */
 export const MEMORY_BRIEFING_END = protocolSection('MEMORY_BRIEFING_END');
+
+/** 当前语言档的简报框定语(英文档用译本)。 */
+export function memoryBriefingNote(): string {
+  return apiSettings.promptLang === 'en' ? EN_MEMORY_BRIEFING_NOTE : MEMORY_BRIEFING_NOTE;
+}
+export function memoryBriefingEnd(): string {
+  return apiSettings.promptLang === 'en' ? EN_MEMORY_BRIEFING_END : MEMORY_BRIEFING_END;
+}
+/** 注入块标题随语言切换,避免英文档里冒出中文小标题。 */
+export function injectLabel(key: 'history' | 'state' | 'recall'): string {
+  if (apiSettings.promptLang !== 'en') {
+    return key === 'history' ? '[历史剧情摘要]' : key === 'state' ? '[当前状态]' : '[相关回忆]';
+  }
+  return key === 'history' ? '[Historical Plot Summary]' : key === 'state' ? '[Current State]' : '[Related Recall]';
+}
 
 /* ============ 共享规则段:单楼摘要与批量摘要复用同一套规则,单一来源避免分叉 ============ */
 
@@ -324,6 +405,20 @@ export const RULE_LIFE_DETAILS = `═══ 【生活小档案规则】(lifeDeta
 【分工】饮食、作息等生活细节归这里;身份/外貌/当前着装/健康状态仍归 protagonist 或 npcs,不要重复记录。这里只放值得跨场景保留的细节,不是每轮流水账。
 【克制】这些细节仅作相关人物的写作参考,不是写作任务;严禁在 summary 里逐条罗列,不得把某人的习惯套给别人。`;
 
+/** 生活小档案规则(lifeDetails 字段),英文档。 */
+const EN_RULE_LIFE_DETAILS = `═══ [Life Details Rules] (lifeDetails field, extremely strict filtering) ═══
+Records the preferences / habits / recent personal state of **the protagonist and main characters**, so the writing AI can stay natural when it becomes relevant; do not extend to extras or one-off side characters.
+[Owner required] Every add must carry subject: for the protagonist write the literal value "user" (not the protagonist's name); for a main character write the exact name in the NPC roster (including main characters added or marked important this round under the NPC rules). One entry belongs to one person only; the same habit of several people is recorded separately. text states that person's concrete detail; the display layer appends the name. Resolve "I/he/she" to a definite owner; never mix speaker, subject, and user into one person. If the subject is unclear, record nothing.
+[Iron rule: only explicit self-statements or facts the text clearly reveals] Never infer preference or inner life from behaviour or tone; one pancake at one meal does not mean he loves pancakes. Quotes, retellings, jokes, sarcasm, or guesses are not that person's real habit; with no reliable explicit basis, record nothing. Affinity and attitude estimates do not go here.
+[Default: do not record] First check the [Life Details] above for "same person + synonymous content"; never add a duplicate entry; different people are not merged even if the wording matches. Old entries without subject are treated as the protagonist under the old protocol; never re-attribute them to an NPC on your own.
+[add] topics: 1-3 topic tags (food / rest / work ...); anchors: searchable keywords from the original text (coriander / project ...); they let the system deliver by relevance. until: an in-story expiry when the detail is time-limited (e.g. a project end date); leave empty for long-term stable preferences.
+[update/archive/remove] Refer to the list above by d1, d2 ...; check the owner first:
+  ✦ An entry clearly overturned/corrected by the text → update its text; change subject only when the owner was clearly misassigned; omitting subject keeps the original owner;
+  ✦ Expired or no longer relevant → archive (settles to trigger-only, not deleted);
+  ✦ Recorded wrongly → remove. When unsure, leave it alone; never overwrite a person's entry with someone else's preference.
+[Division of labour] Food, rest, and similar life details belong here; identity / appearance / current outfit / health still belong to protagonist or npcs, do not duplicate. This holds only details worth keeping across scenes, not a per-round log.
+[Restraint] These details are writing reference for the relevant person, not a writing task; never enumerate them item by item in summary, and never apply one person's habit to another.`;
+
 /** 计划/悬念规则(plans 字段)。 */
 export const RULE_PLANS = `═══ 【计划/悬念规则】(plans 字段) ═══
 分"计划"(plan)和"悬念"(suspense)两类。共同铁律:【默认不写】。只有确信一件事必须被长期记住、否则会损害后续剧情,才记。绝大多数楼层不产生任何 plans.add。
@@ -459,6 +554,90 @@ const SUMMARY_RULES = `${SUMMARY_SPLIT.rules}\n\n${CONDITION_PATCH_PROTOCOL}`;
 
 /** 设置页仍提供完整可编辑模板;发送时内置规范与材料分别展开,不解析正文中的标题。 */
 export const SUMMARY_PROMPT = SUMMARY_BODY;
+
+/* ───────────────── 内置规则段落(可单独覆盖) ─────────────────
+ * 破限、时间规则、摘要撰写规则、关系线保留等段落原本写死在代码里,设置页只能改整份模板。
+ * 这里按「═══ 【名】…」/「【名】…」标题行把内置文本切成段落,允许按标题名单独覆盖;
+ * 覆盖值存在当前语言档的 prompts[lang].blocks 里(中英各一套,互不影响)。
+ * 标题名即 key:中文档存中文名,英文档存英文名,切换语言不会串档。 */
+
+/** 标题行:行首可带 ═══ 装饰;中文档用【名】,英文档用 [Name](两种语言各存各的覆盖)。 */
+const SECTION_HEAD_RE = /^(?:═{2,}\s*)?(?:【([^】\n]{2,40})】|\[([^\]\n]{2,40})\])[^\n]*$/u;
+
+export interface RuleSection {
+  /** 段落名(方括号内文本),即覆盖用的 key */
+  label: string;
+  /** 该段完整文本(含标题行) */
+  text: string;
+}
+
+/** 把一段提示词按标题行切成段落;首个标题前的内容忽略(不是可独立编辑的规则段)。 */
+export function splitRuleSections(text: string): RuleSection[] {
+  const out: RuleSection[] = [];
+  let cur: RuleSection | null = null;
+  for (const line of text.split('\n')) {
+    const m = SECTION_HEAD_RE.exec(line.trim());
+    if (m) {
+      cur = { label: (m[1] ?? m[2]).trim(), text: line };
+      out.push(cur);
+    } else if (cur) {
+      cur.text += `\n${line}`;
+    }
+  }
+  return out
+    .filter(s => s.label && s.text.trim().length > s.label.length)
+    .map(s => ({ label: s.label, text: s.text.replace(/\s+$/, '') }));
+}
+
+/** 用当前语言档保存的覆盖替换对应段落;没覆盖的段落原样保留。 */
+export function applyRuleOverrides(text: string): string {
+  const blocks = activePrompts().blocks;
+  if (!blocks || !Object.keys(blocks).length) return text;
+  let out = text;
+  for (const s of splitRuleSections(text)) {
+    const ov = blocks[s.label]?.trim();
+    if (!ov) continue;
+    // 同一段可能出现多次(单楼/批量共用),全部替换
+    out = out.split(s.text).join(ov);
+  }
+  return out;
+}
+
+/** 设置页列出的候选段落:发送时可能出现的全部内置规则段,按标题名去重。 */
+export function ruleSectionCatalog(): RuleSection[] {
+  const en = isEn();
+  const sources = en
+    ? [EN_RULE_SUMMARY_WRITE, EN_TIME_RULE_WITH_TAGS, EN_TIME_RULE_NO_TAGS, EN_RULE_ABSOLUTE_TIME_LANGUAGE,
+       EN_RULE_RELATION_MOMENTUM, EN_SUMMARY_FACT_PREPARATION, EN_SUMMARY_FACT_VERIFICATION,
+       EN_RULE_NPC_AFFINITY, EN_TIME_ANCHOR_PROTOCOL_SUPPLEMENT, EN_PROTAGONIST_PROTOCOL_SUPPLEMENT,
+       EN_SCENE_FOCUS_PROTOCOL_SUPPLEMENT, EN_LIFE_DETAILS_PROTOCOL_SUPPLEMENT]
+    : [
+      SUMMARY_RULES,
+      RULE_SUMMARY_WRITE,
+      TIME_RULE_WITH_TAGS,
+      TIME_RULE_NO_TAGS,
+      RULE_ABSOLUTE_TIME_LANGUAGE,
+      RULE_RELATION_MOMENTUM,
+      RULE_SUMMARY_COMPOSITION,
+      SUMMARY_FACT_PREPARATION,
+      SUMMARY_FACT_VERIFICATION,
+      RULE_NPC_AFFINITY,
+      TIME_ANCHOR_PROTOCOL_SUPPLEMENT,
+      PROTAGONIST_PROTOCOL_SUPPLEMENT,
+      SCENE_FOCUS_PROTOCOL_SUPPLEMENT,
+      LIFE_DETAILS_PROTOCOL_SUPPLEMENT,
+    ];
+  const seen = new Set<string>();
+  const out: RuleSection[] = [];
+  for (const src of sources) {
+    for (const s of splitRuleSections(src)) {
+      if (seen.has(s.label)) continue;
+      seen.add(s.label);
+      out.push(s);
+    }
+  }
+  return out;
+}
 
 /**
  * 批量摘要提示词:一次请求覆盖连续 K 个 AI 楼,输出 floors 数组(每元素对应一楼)。
@@ -972,11 +1151,11 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     resolved_plans_block: fmtResolvedPlans(a.resolvedPlans),
     scenefocus_block: fmtSceneFocus(a.sceneFocus),
     lifedetails_block: `- 生活小档案(已记录,用编号 d1/d2… 指代;只读参考,勿重复记录 —— 见下方【生活小档案规则】):\n${fmtLifeDetails(a.lifeDetails, a.user || '主角')}\n`,
-    lifedetails_field: LIFE_DETAILS_FIELD_TMPL,
-    lifedetails_rule: `\n${RULE_LIFE_DETAILS}\n`,
+    lifedetails_field: pick(LIFE_DETAILS_FIELD_TMPL, EN_LIFE_DETAILS_FIELD_TMPL),
+    lifedetails_rule: `\n${pick(RULE_LIFE_DETAILS, EN_RULE_LIFE_DETAILS)}\n`,
     content: a.content,
-    time_field: a.hasTimeTags ? TIME_FIELD_WITH_TAGS : TIME_FIELD_NO_TAGS,
-    time_rule: a.hasTimeTags ? TIME_RULE_WITH_TAGS : TIME_RULE_NO_TAGS,
+    time_field: pick(a.hasTimeTags ? TIME_FIELD_WITH_TAGS : TIME_FIELD_NO_TAGS, a.hasTimeTags ? EN_TIME_FIELD_WITH_TAGS : EN_TIME_FIELD_NO_TAGS),
+    time_rule: pick(a.hasTimeTags ? TIME_RULE_WITH_TAGS : TIME_RULE_NO_TAGS, a.hasTimeTags ? EN_TIME_RULE_WITH_TAGS : EN_TIME_RULE_NO_TAGS),
     summary_words: currentVerbosity().summaryWords,
     summary_max_chars: String(currentVerbosity().summaryMaxChars),
     // 自定义变量三处:未配置变量(空状态 + 空说明)时全为空串(零 token 开销,老用户行为不变)
@@ -992,24 +1171,34 @@ export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string
     varlog_block: [a.varsMeaning.trim(), a.varsRule.trim()].filter(Boolean).join('\n\n') || '(无)',
   };
   if (isBuiltinSummaryPrompt()) {
-    return { system: fill(SUMMARY_RULES, macros), user: fill(SUMMARY_INPUT, macros) };
+    const s = langSplits().summary;
+    const patch = apiSettings.promptLang === 'en' ? protocolSectionEn('CONDITION_PATCH_PROTOCOL') : CONDITION_PATCH_PROTOCOL;
+    return { system: applyRuleOverrides(fill(`${s.rules}\n\n${patch}`, macros)), user: fill(s.input, macros) };
   }
   const prompt = fill(custom, macros);
-  const supplements = [PROTAGONIST_PROTOCOL_SUPPLEMENT, RULE_ABSOLUTE_TIME_LANGUAGE, SCENE_FOCUS_PROTOCOL_SUPPLEMENT];
-  supplements.push(LIFE_DETAILS_PROTOCOL_SUPPLEMENT);
-  if (!prompt.includes('【内心好感与外在态度规则】')) supplements.push(RULE_NPC_AFFINITY);
+  const supplements = [
+    pick(PROTAGONIST_PROTOCOL_SUPPLEMENT, EN_PROTAGONIST_PROTOCOL_SUPPLEMENT),
+    pick(RULE_ABSOLUTE_TIME_LANGUAGE, EN_RULE_ABSOLUTE_TIME_LANGUAGE),
+    pick(SCENE_FOCUS_PROTOCOL_SUPPLEMENT, EN_SCENE_FOCUS_PROTOCOL_SUPPLEMENT),
+    pick(LIFE_DETAILS_PROTOCOL_SUPPLEMENT, EN_LIFE_DETAILS_PROTOCOL_SUPPLEMENT),
+  ];
+  if (!prompt.includes('【内心好感与外在态度规则】') && !prompt.includes('[Inner Affinity')) {
+    supplements.push(pick(RULE_NPC_AFFINITY, EN_RULE_NPC_AFFINITY));
+  }
   // 关系线保留:自定义模板未带入时补上,保证慢热互动不在摘要/压缩里被删空(与内置模板同源)
-  if (!prompt.includes('【关系线保留】')) supplements.push(RULE_RELATION_MOMENTUM);
+  if (!prompt.includes('【关系线保留】') && !prompt.includes('[Relationship Line Preservation]')) {
+    supplements.push(pick(RULE_RELATION_MOMENTUM, EN_RULE_RELATION_MOMENTUM));
+  }
   // {{time_rule}} 在无时间标签时本身已经带有完整时间协议;
   // 只有自定义模板没有带入它时,才追加兼容协议,避免完整时间要求重复注入。
-  if (!a.hasTimeTags && !prompt.includes('【完整时间锚点格式(系统强制)】')) {
-    supplements.push(TIME_ANCHOR_PROTOCOL_SUPPLEMENT);
+  if (!a.hasTimeTags && !prompt.includes('【完整时间锚点格式(系统强制)】') && !prompt.includes('[Complete Time Anchor Format')) {
+    supplements.push(pick(TIME_ANCHOR_PROTOCOL_SUPPLEMENT, EN_TIME_ANCHOR_PROTOCOL_SUPPLEMENT));
   }
   return {
-    system: fill(supplements.join('\n\n'), macros),
-    user: `${prompt}\n\n【主角当前档案(本轮之前,只读参考)】\n${macros.protagonist_block}`
-      + (prompt.includes(macros.npcs_block) ? '' : `\n\n【已登场NPC(本轮之前,好感估计只作基线,不重复结算)】\n${macros.npcs_block}`)
-      + (prompt.includes(macros.lifedetails_block.trim()) ? '' : `\n\n${macros.lifedetails_block}`),
+    system: applyRuleOverrides(fill(supplements.join('\n\n'), macros)),
+    user: applyRuleOverrides(`${prompt}\n\n${pick('【主角当前档案(本轮之前,只读参考)】', '[Current Protagonist Profile (previous rounds, read-only reference)]')}\n${macros.protagonist_block}`
+      + (prompt.includes(macros.npcs_block) ? '' : `\n\n${pick('【已登场NPC(本轮之前,好感估计只作基线,不重复结算)】', '[NPCs on Stage (previous rounds; affinity estimates are baseline only, do not re-settle)]')}\n${macros.npcs_block}`)
+      + (prompt.includes(macros.lifedetails_block.trim()) ? '' : `\n\n${macros.lifedetails_block}`)),
   };
 }
 
@@ -1027,6 +1216,15 @@ const LIFE_DETAILS_FIELD_TMPL = `,
   "lifeDetails": {
     "add": [{ "subject": "user或主要角色在NPC名册中的确切名字", "text": "该人物明说过/正文明确揭示的偏好、习惯或近期状态一句话", "topics": ["主题标签,1-3个"], "anchors": ["原文关键词"], "until": "故事内到期时间(长期偏好留空,可选)" }],
     "update": [{ "id": "d1", "subject": "明确纠正归属时才填;省略保持", "text": "纠正后的新内容(可选)", "topics": ["新标签(可选,整体覆盖)"], "anchors": ["新关键词(可选,整体覆盖)"], "until": "新时效(可选;空字符串=清除)" }],
+    "archive": ["d2"],
+    "remove": ["d3"]
+  }`;
+
+/** 生活小档案字段模板,英文档。 */
+const EN_LIFE_DETAILS_FIELD_TMPL = `,
+  "lifeDetails": {
+    "add": [{ "subject": "exact name of the protagonist or main character in the NPC roster", "text": "one sentence: a preference, habit, or recent state this person explicitly stated or the text clearly reveals", "topics": ["1-3 topic tags"], "anchors": ["keywords from the source text"], "until": "in-story expiry (leave empty for long-term preferences, optional)" }],
+    "update": [{ "id": "d1", "subject": "only when the owner is clearly corrected; omit to keep", "text": "corrected new content (optional)", "topics": ["new tags (optional, full overwrite)"], "anchors": ["new keywords (optional, full overwrite)"], "until": "new expiry (optional; empty string = clear)" }],
     "archive": ["d2"],
     "remove": ["d3"]
   }`;
@@ -1061,7 +1259,7 @@ export function buildBatchSummaryPrompt(a: BatchBuildArgs): { system: string; us
     floor_count: String(a.floorCount),
     summary_words: currentVerbosity().summaryWords,
   };
-  return { system: fill(BATCH_SUMMARY_RULES, macros), user: fill(BATCH_SUMMARY_INPUT, macros) };
+  return { system: applyRuleOverrides(fill(BATCH_SUMMARY_RULES, macros)), user: fill(BATCH_SUMMARY_INPUT, macros) };
 }
 
 /** 填充批量思考清单里的 {{floor_count}} 宏。 */
@@ -1106,13 +1304,18 @@ export function buildResummaryPrompt(
     target: isSecond ? String(targets.max) : '',
   };
   if (custom && custom !== builtin.trim()) {
-    const supplements = [RULE_ABSOLUTE_TIME_LANGUAGE];
-    if (!custom.includes('【关系线保留】')) supplements.push(RULE_RELATION_MOMENTUM);
-    return { system: supplements.join('\n\n'), user: fill(custom, macros) };
+    const supplements = [pick(RULE_ABSOLUTE_TIME_LANGUAGE, EN_RULE_ABSOLUTE_TIME_LANGUAGE)];
+    if (!custom.includes('【关系线保留】') && !custom.includes('[Relationship Line Preservation]')) {
+      supplements.push(pick(RULE_RELATION_MOMENTUM, EN_RULE_RELATION_MOMENTUM));
+    }
+    return {
+      system: applyRuleOverrides(supplements.join('\n\n')),
+      user: applyRuleOverrides(fill(custom, macros)),
+    };
   }
   return {
-    system: fill(isSecond ? RESUMMARY2_RULES : RESUMMARY_RULES, macros),
-    user: fill(isSecond ? RESUMMARY2_INPUT : RESUMMARY_INPUT, macros),
+    system: applyRuleOverrides(fill((isSecond ? langSplits().resummary2 : langSplits().resummary).rules, macros)),
+    user: applyRuleOverrides(fill((isSecond ? langSplits().resummary2 : langSplits().resummary).input, macros)),
   };
 }
 
@@ -1296,3 +1499,18 @@ export const QUERY_REWRITE_TAIL = `记住你的任务:
 - 所有查询只能指向过去已经发生的事
 - 不要查询当前对话窗口中已经完整呈现的内容
 - 严格按格式输出:一行INTENT加恰好5行Q,不要输出任何其他内容`;
+
+/* ============ 语言档选择器:调用方不再直接读中文常量,切 promptLang 即整体换英文 ============ */
+
+/** 内置破限(当前语言档)。 */
+export function builtinJailbreak(): string {
+  return pick(JAILBREAK_PROMPT, EN_JAILBREAK_PROMPT);
+}
+
+/** 查询重写的系统提示词与收尾(当前语言档)。 */
+export function queryRewriteSystem(): string {
+  return pick(QUERY_REWRITE_SYSTEM, EN_QUERY_REWRITE_SYSTEM);
+}
+export function queryRewriteTail(): string {
+  return pick(QUERY_REWRITE_TAIL, EN_QUERY_REWRITE_TAIL);
+}
