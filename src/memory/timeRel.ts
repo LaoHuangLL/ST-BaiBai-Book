@@ -11,7 +11,16 @@
  * 一句话:宁可不标,绝不标错。
  */
 
-import { pickLang } from '@/api/settings';
+/** 本模块的语言状态:由 settings 在语言切换时同步,避免 timeRel 反向依赖 settings(它会被脚本单独转译)。 */
+let clockLang: 'zh' | 'en' = 'zh';
+
+export function setTimeRelLang(lang: 'zh' | 'en'): void {
+  clockLang = lang;
+}
+
+function pickLang(zh: string, en: string): string {
+  return clockLang === 'en' ? en : zh;
+}
 
 /** 中文周几(0=周日) */
 const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
