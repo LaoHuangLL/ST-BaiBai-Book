@@ -18,7 +18,7 @@ const initial: NpcDelta = { name, affinityInner: 1, affinityOuter: -1, affinityN
 const original = {
   summaryOnlyMode: settings.apiSettings.summaryOnlyMode,
   injection: { ...settings.apiSettings.injection },
-  prompt: settings.apiSettings.prompts.summary,
+  prompt: settings.apiSettings.prompts.zh.summary,
   keepRecent: settings.apiSettings.keepRecent,
   vector: settings.apiSettings.vector.enabled,
 };
@@ -47,7 +47,7 @@ beforeEach(() => {
   settings.apiSettings.injection.npcs = true;
   settings.apiSettings.injection.npcAffinity = true;
   settings.apiSettings.injection.scenes = true;
-  settings.apiSettings.prompts.summary = '';
+  settings.apiSettings.prompts.zh.summary = '';
   settings.apiSettings.vector.enabled = false;
   vi.spyOn(settings, 'engineActiveHere').mockReturnValue(true);
   vi.spyOn(settings, 'getChannelForTask').mockReturnValue(null);
@@ -62,7 +62,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   settings.apiSettings.summaryOnlyMode = original.summaryOnlyMode;
   Object.assign(settings.apiSettings.injection, original.injection);
-  settings.apiSettings.prompts.summary = original.prompt;
+  settings.apiSettings.prompts.zh.summary = original.prompt;
   settings.apiSettings.keepRecent = original.keepRecent;
   settings.apiSettings.vector.enabled = original.vector;
 });
@@ -252,7 +252,7 @@ const promptArgs: Parameters<typeof buildSummaryPrompt>[0] = {
 };
 describe('摘要与主对话的提示词边界', () => {
   it.each(['', 'CUSTOM {{content}}', 'CUSTOM {{npcs_block}} {{content}}'])('默认及自定义摘要模板都有协议与先前基线: %s', custom => {
-    settings.apiSettings.prompts.summary = custom;
+    settings.apiSettings.prompts.zh.summary = custom;
     const prompt = buildSummaryPrompt(promptArgs);
     expect(prompt.system).toContain('【内心好感与外在态度规则】');
     expect(prompt.system).not.toContain(initial.affinityNote);

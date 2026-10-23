@@ -9,7 +9,7 @@
  * 标签**留在正文里**(发副 API、发主模型续写都带着),只用 ST 正则在「显示层」隐藏 —— 真删会让时间再次失同步。
  */
 
-import { apiSettings } from '@/api/settings';
+import { activePrompts, apiSettings } from '@/api/settings';
 import { getContext, type STMessage } from '@/st/context';
 import { stripBaiBaiImageTags } from './imageTag';
 import type { LeafExtra } from './types';
@@ -71,7 +71,7 @@ ${LEDGER_PROTOCOL}`;
 
 /** 当前生效的固定提示词(用户自定义优先,空则用内置默认)。 */
 export function timeTagPrompt(): string {
-  const custom = apiSettings.prompts.timeTag.trim();
+  const custom = activePrompts().timeTag.trim();
   return custom || TIME_TAG_PROMPT;
 }
 

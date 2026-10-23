@@ -5,7 +5,7 @@ import BbsSelect from '@/components/BbsSelect.vue';
 import Icon from '@/components/Icon.vue';
 import ModalMask from '@/components/ModalMask.vue';
 import { fetchModels, testChannel } from '@/api/client';
-import { apiSettings, newChannel, resolveVectorModel, sanitizeTagName, type ApiChannel, type Verbosity } from '@/api/settings';
+import { activePrompts, apiSettings, newChannel, resolveVectorModel, sanitizeTagName, type ApiChannel, type PromptLang, type Verbosity } from '@/api/settings';
 import { getContext } from '@/st/context';
 import {
   JAILBREAK_PROMPT,
@@ -54,6 +54,12 @@ const REASONING_EFFORT_OPTIONS = [
 const VERBOSITY_OPTIONS: { value: Verbosity; label: string }[] = [
   { value: 'detailed', label: '详细' },
   { value: 'concise', label: '精简' },
+];
+
+/** 自定义提示词的语言档:中英各存一套,切换只改读取源,不覆盖另一套。 */
+const PROMPT_LANG_OPTIONS: { value: PromptLang; label: string }[] = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: '英文' },
 ];
 
 /** 任务指派下拉:空串 = 跟随主 API,其余为副渠道 id(未命名渠道给个占位名,免空白选项) */
@@ -294,15 +300,15 @@ const editingPrompt = ref<PromptMeta | null>(null);
 const promptDraft = ref('');
 const promptArea = ref<HTMLTextAreaElement | null>(null);
 
-// 该任务是否已自定义(非空即视为已覆盖内置)
+// 该任务是否已自定义(非空即视为已覆盖内置)。按当前语言档读取。
 function isCustom(key: PromptKey): boolean {
-  return apiSettings.prompts[key].trim().length > 0;
+  return activePrompts()[key].trim().length > 0;
 }
 
 function openPrompt(meta: PromptMeta) {
   editingPrompt.value = meta;
   // 已自定义→载入用户内容;未自定义→预填内置模板,方便直接在其上改
-  promptDraft.value = apiSettings.prompts[meta.key].trim() || meta.builtin;
+  promptDraft.value = activePrompts()[meta.key].trim() || meta.builtin;
 }
 function closePrompt() {
   editingPrompt.value = null;
@@ -313,7 +319,7 @@ function savePrompt() {
   if (!meta) return;
   // 草稿与内置完全一致→存空串(回落内置),避免把模板冗余存进设置、也便于显示「默认」
   const v = promptDraft.value.trim();
-  apiSettings.prompts[meta.key] = v === meta.builtin.trim() ? '' : promptDraft.value;
+  activePrompts()[meta.key] = v === meta.builtin.trim() ? '' : promptDraft.value;
   closePrompt();
 }
 // 「恢复默认」:把草稿重置回内置模板(保存后即回落内置)
@@ -1175,6 +1181,11 @@ function exportPublicApiDocument() {
 
       <!-- 自定义提示词 -->
       <Collapsible title="自定义提示词" :open="false">
+        <div class="bbs-num-row">
+          <span class="bbs-field-label">提示词语言</span>
+          <BbsSelect v-model="apiSettings.promptLang" :options="PROMPT_LANG_OPTIONS" class="bbs-select-narrow" aria-label="自定义提示词语言" />
+        </div>
+        <p class="bbs-field-hint">中英各存一套自定义提示词;切换语言只改读取的那套,不会覆盖另一套。留空即用内置中文模板。</p>
         <ul class="bbs-prompt-list">
           <li v-for="m in PROMPT_METAS" :key="m.key" class="bbs-prompt-item">
             <button class="bbs-prompt-open" type="button" @click="openPrompt(m)">

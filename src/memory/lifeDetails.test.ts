@@ -17,7 +17,7 @@ import { createEmptyMemory, type MemLifeDetail, type StoredDelta, type SummaryDe
 const original = {
   summaryOnlyMode: settings.apiSettings.summaryOnlyMode,
   injection: { ...settings.apiSettings.injection },
-  prompt: settings.apiSettings.prompts.summary,
+  prompt: settings.apiSettings.prompts.zh.summary,
   keepRecent: settings.apiSettings.keepRecent,
   vector: settings.apiSettings.vector.enabled,
 };
@@ -44,7 +44,7 @@ beforeEach(() => {
   Object.assign(memory, createEmptyMemory());
   settings.apiSettings.summaryOnlyMode = false;
   settings.apiSettings.injection.lifeDetails = true;
-  settings.apiSettings.prompts.summary = '';
+  settings.apiSettings.prompts.zh.summary = '';
   settings.apiSettings.vector.enabled = false;
   vi.spyOn(settings, 'engineActiveHere').mockReturnValue(true);
   vi.spyOn(settings, 'getChannelForTask').mockReturnValue(null);
@@ -59,7 +59,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   settings.apiSettings.summaryOnlyMode = original.summaryOnlyMode;
   Object.assign(settings.apiSettings.injection, original.injection);
-  settings.apiSettings.prompts.summary = original.prompt;
+  settings.apiSettings.prompts.zh.summary = original.prompt;
   settings.apiSettings.keepRecent = original.keepRecent;
   settings.apiSettings.vector.enabled = original.vector;
 });
@@ -173,7 +173,7 @@ describe('每条生活细节都有明确主语', () => {
     expect(fmtLifeDetails(promptArgs.lifeDetails, '林舟')).toContain(`d2. [长期] 艾琳：${detail().text}`);
   });
   it.each(['', 'CUSTOM {{content}}', 'CUSTOM {{lifedetails_block}} {{content}}'])('默认/自定义模板带人物协议和完整旧档案: %s', custom => {
-    settings.apiSettings.prompts.summary = custom;
+    settings.apiSettings.prompts.zh.summary = custom;
     const prompt = buildSummaryPrompt(promptArgs);
     expect(prompt.system).toContain('每条 add 必须带 subject');
     expect(prompt.system).toContain('主角固定写字面值 "user"');

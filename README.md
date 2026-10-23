@@ -15,6 +15,7 @@
 | **隐藏锚点 `historyAnchorTime`** | 每次批量提交时记下故事内时间，注入块的相对时间（「3 小时前」）以它为基准，两次批量之间逐字节不变。 |
 | **启动修复 `repairHiddenNow()`** | 启动、切聊天、调大保留窗口后，只恢复「按当前窗口不该隐藏」的楼层，绝不新增隐藏。 |
 | **设置页新行** | 摘要设置里新增「批量隐藏·每批楼数」输入，带说明。 |
+| **中英双套自定义提示词** | 设置 →「自定义提示词」新增「提示词语言」下拉（中文 / 英文）。摘要、总结、二次总结、破限、时间标签五套模板中英各存一份，切换语言只改读取源，另一套原样保留；老配置的扁平模板自动整份迁入中文套。 |
 
 ### 行为改动对照
 
@@ -35,6 +36,7 @@
 - **锚点持久化**：`historyAnchorTime` 存进 `chatMetadata.baibai_book`（[store.ts:157](src/memory/store.ts#L157)、store.ts:320），注入侧改为 `getHistoryAnchorTime() || latestStoryTime(chat)`（[inject.ts:285](src/memory/inject.ts#L285)），老数据没有锚点时在修复阶段补写。
 - **推迟层级压缩**：`runSummaryInner` 里改为 `batchSize <= 0` 才即时 `checkResummary()`（[engine.ts:1327](src/memory/engine.ts#L1327)），避免两次批量之间新总结改变注入节点集合。
 - **默认值与迁移**：[settings.ts:353-354](src/api/settings.ts#L353) 改默认，[settings.ts:490-496](src/api/settings.ts#L490) 归一化并做一次性迁移；[index.ts:144](src/index.ts#L144) 启动时调用 `repairHiddenNow()`。
+- **中英双套提示词**：`prompts` 由扁平对象改为 `{ zh, en }` 双槽并新增 `promptLang`（[settings.ts:69](src/api/settings.ts#L69)、[settings.ts:193](src/api/settings.ts#L193)）；所有读模板的调用点统一改走 `activePrompts()`（[settings.ts:631](src/api/settings.ts#L631)），切语言即整体换一套。`normalizePrompts()` 识别旧扁平结构并整份迁入 `zh` 槽（[settings.ts:408](src/api/settings.ts#L408)），老配置不会丢模板。
 
 ### 兼容与迁移
 

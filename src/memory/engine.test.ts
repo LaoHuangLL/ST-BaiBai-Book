@@ -161,24 +161,24 @@ describe('opening generation interception', () => {
 });
 
 describe('summary request roles', () => {
-  const originalPrompts = { ...settings.apiSettings.prompts };
+  const originalPrompts = { ...settings.apiSettings.prompts.zh };
   const originalBatch = {
     batchMaxFloors: settings.apiSettings.batchMaxFloors,
     batchMaxChars: settings.apiSettings.batchMaxChars,
   };
 
   beforeEach(() => {
-    Object.assign(settings.apiSettings.prompts, { summary: '', resummary: '', resummary2: '' });
+    Object.assign(settings.apiSettings.prompts.zh, { summary: '', resummary: '', resummary2: '' });
     Object.assign(settings.apiSettings, { batchMaxFloors: 2, batchMaxChars: 10000 });
   });
 
   afterEach(() => {
-    Object.assign(settings.apiSettings.prompts, originalPrompts);
+    Object.assign(settings.apiSettings.prompts.zh, originalPrompts);
     Object.assign(settings.apiSettings, originalBatch);
   });
 
   it.each([false, true])('sends single-floor instructions separately and stores only final JSON (custom=%s)', async custom => {
-    if (custom) settings.apiSettings.prompts.summary = 'CUSTOM {{content}}';
+    if (custom) settings.apiSettings.prompts.zh.summary = 'CUSTOM {{content}}';
     const chat = [message()];
     useChat(chat);
     vi.mocked(client.requestViaMainApi).mockResolvedValue(
@@ -286,7 +286,7 @@ describe('summary request roles', () => {
   it.each([
     [false, '\n'], [false, '\r\n'], [true, '\n'], [true, '\r\n'],
   ] as const)('attaches verbatim reminders from cleaned user and AI paragraphs only (custom=%s, newline=%j)', async (custom, newline) => {
-    if (custom) settings.apiSettings.prompts.summary = 'CUSTOM {{content}}';
+    if (custom) settings.apiSettings.prompts.zh.summary = 'CUSTOM {{content}}';
     const userBody = '我已经搬出旧宿舍，独自住进条件更好的公寓。';
     const paragraphs = [
       '「谷口风速已经过了九级，气温降到零下三十三度。」',
@@ -447,7 +447,7 @@ describe('summary request roles', () => {
 });
 
 describe.each(['automatic', 'manual'] as const)('compression audit output (%s)', mode => {
-  const originalPrompts = { ...settings.apiSettings.prompts };
+  const originalPrompts = { ...settings.apiSettings.prompts.zh };
   const original = {
     leafBatchThreshold: settings.apiSettings.leafBatchThreshold,
     leafKeepRecent: settings.apiSettings.leafKeepRecent,
@@ -457,7 +457,7 @@ describe.each(['automatic', 'manual'] as const)('compression audit output (%s)',
   };
 
   beforeEach(() => {
-    Object.assign(settings.apiSettings.prompts, { resummary: '', resummary2: '' });
+    Object.assign(settings.apiSettings.prompts.zh, { resummary: '', resummary2: '' });
     Object.assign(settings.apiSettings, {
       leafBatchThreshold: 2,
       leafKeepRecent: 0,
@@ -468,7 +468,7 @@ describe.each(['automatic', 'manual'] as const)('compression audit output (%s)',
   });
 
   afterEach(() => {
-    Object.assign(settings.apiSettings.prompts, originalPrompts);
+    Object.assign(settings.apiSettings.prompts.zh, originalPrompts);
     Object.assign(settings.apiSettings, original);
   });
 
@@ -528,7 +528,7 @@ describe.each(['automatic', 'manual'] as const)('compression audit output (%s)',
     [0, false], [1, false], [2, false], [1, true],
   ] as const)('copies numbered sources with time ranges without inflating budgets (input level=%s, custom=%s)', async (level, custom) => {
     if (custom) {
-      settings.apiSettings.prompts.resummary2 = 'CUSTOM {{content}}\nBUDGET {{target_min}}-{{target_max}}';
+      settings.apiSettings.prompts.zh.resummary2 = 'CUSTOM {{content}}\nBUDGET {{target_min}}-{{target_max}}';
     }
     const texts = [
       '本段能见度不足三十米，红外探测距离受限。',
@@ -561,7 +561,7 @@ describe.each(['automatic', 'manual'] as const)('compression audit output (%s)',
     expect(messages.at(-1)?.content).toBe(RESUMMARY_THINKING_CHECKLIST);
     if (custom) {
       expect(messages.at(-2)?.content).toContain('CUSTOM ');
-      expect(settings.apiSettings.prompts.resummary2).toBe('CUSTOM {{content}}\nBUDGET {{target_min}}-{{target_max}}');
+      expect(settings.apiSettings.prompts.zh.resummary2).toBe('CUSTOM {{content}}\nBUDGET {{target_min}}-{{target_max}}');
     }
   });
 

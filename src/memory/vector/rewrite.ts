@@ -15,7 +15,7 @@
 
 import type { STMessage } from '@/st/context';
 import { getContext } from '@/st/context';
-import { apiSettings, resolveVectorModel } from '@/api/settings';
+import { activePrompts, apiSettings, resolveVectorModel } from '@/api/settings';
 import { deriveMemory, getLeaf, leafValid } from '../apply';
 import { resolveKeepStart } from '../engine';
 import { renderHistoryNodes, selectHistoryNodesBefore } from '../inject';
@@ -102,7 +102,7 @@ function buildMessages(chat: STMessage[]): ChatMsg[] {
   // (自定义优先,留空用内置 NVWA 核心)。
   const history = renderHistoryNodes(selectHistoryNodesBefore(memory.summaries, chat, windowStart));
   const body = history ? `${QUERY_REWRITE_SYSTEM}\n\n[历史剧情摘要]\n${history}` : QUERY_REWRITE_SYSTEM;
-  const jb = apiSettings.prompts.jailbreak.trim() || JAILBREAK_PROMPT;
+  const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
   const systemContent = `${jb}\n\n${body}`;
   const messages: ChatMsg[] = [{ role: 'system', content: systemContent }];
 

@@ -14,7 +14,7 @@
  *         {{protagonist_block}} {{items_block}} {{plans_block}} {{content}}
  */
 
-import { apiSettings, type Verbosity } from '@/api/settings';
+import { activePrompts, apiSettings, type Verbosity } from '@/api/settings';
 import { fmtConditionFragments } from './conditionPatch';
 import { fmtLifeDetail } from './lifeDetails';
 import { fmtNpcSummaryList, NPC_AFFINITY_FIELDS, type NpcSummaryView } from './npcRelations';
@@ -950,13 +950,13 @@ ${RULE_LIFE_DETAILS}`;
 
 /** 当前是否在用内置摘要模板(空=内置;等于内置默认也算内置)。用于「仅内置才启用」的解析校验。 */
 export function isBuiltinSummaryPrompt(): boolean {
-  const custom = apiSettings.prompts.summary.trim();
+  const custom = activePrompts().summary.trim();
   return !custom || custom === SUMMARY_PROMPT.trim();
 }
 
 /** 内置规则与材料分别展开;自定义模板不猜测边界,只将兼容规范移到 system。 */
 export function buildSummaryPrompt(a: BuildArgs): { system: string; user: string } {
-  const custom = apiSettings.prompts.summary.trim();
+  const custom = activePrompts().summary.trim();
   const macros = {
     user: a.user || '主角',
     char: a.char || '角色',
@@ -1091,8 +1091,8 @@ export function buildResummaryPrompt(
 ): { system: string; user: string } {
   const isSecond = a.level >= 2;
   const custom = isSecond
-    ? apiSettings.prompts.resummary2.trim()
-    : apiSettings.prompts.resummary.trim();
+    ? activePrompts().resummary2.trim()
+    : activePrompts().resummary.trim();
   const builtin = isSecond ? RESUMMARY2_PROMPT : RESUMMARY_PROMPT;
   const targets = isSecond ? resummary2Targets(a.content.length) : { min: 0, max: 0 };
   const macros = {

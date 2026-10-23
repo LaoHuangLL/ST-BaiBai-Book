@@ -1,6 +1,6 @@
 import type { ChatMsg } from '@/api/client';
 import { mainApiAvailable, requestCompletion, requestViaMainApi } from '@/api/client';
-import { apiSettings, engineActiveHere, getChannelForTask } from '@/api/settings';
+import { activePrompts, apiSettings, engineActiveHere, getChannelForTask } from '@/api/settings';
 import type { TaskType } from '@/api/settings';
 import type { STMessage, WorldInfoEntry } from '@/st/context';
 import { getContext, getCheckWorldInfo, getEjsTemplate, setMessageText } from '@/st/context';
@@ -1267,7 +1267,7 @@ async function summarizeFloorWork(
 
   const checklist = buildSummaryThinking(ctx.name1);
   const messages: ChatMsg[] = [];
-  const jb = apiSettings.prompts.jailbreak.trim() || JAILBREAK_PROMPT;
+  const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
   if (jb) messages.push({ role: 'system', content: jb });
   if (charCard) messages.push({ role: 'system', content: buildCharCardSystem(charCard) });
   if (persona) messages.push({ role: 'system', content: buildPersonaSystem(persona) });
@@ -1427,7 +1427,7 @@ async function summarizeBatchWork(
 
   const checklist = buildBatchThinking(block.length);
   const messages: ChatMsg[] = [];
-  const jb = apiSettings.prompts.jailbreak.trim() || JAILBREAK_PROMPT;
+  const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
   if (jb) messages.push({ role: 'system', content: jb });
   if (charCard) messages.push({ role: 'system', content: buildCharCardSystem(charCard) });
   if (persona) messages.push({ role: 'system', content: buildPersonaSystem(persona) });
@@ -1685,7 +1685,7 @@ export async function checkResummary(): Promise<number> {
     const prompt = buildResummaryPrompt({ user: ctx.name1, char: ctx.name2, content, level: level + 1 });
 
     try {
-      const jb = apiSettings.prompts.jailbreak.trim() || JAILBREAK_PROMPT;
+      const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
       const messages: ChatMsg[] = [];
       if (jb) messages.push({ role: 'system', content: jb });
       messages.push(
@@ -1846,7 +1846,7 @@ export async function summarizeSelected(nodeIds: string[]): Promise<{ made: numb
   engineState.running = true;
   engineState.lastError = '';
   try {
-    const jb = apiSettings.prompts.jailbreak.trim() || JAILBREAK_PROMPT;
+    const jb = activePrompts().jailbreak.trim() || JAILBREAK_PROMPT;
     const messages: ChatMsg[] = [];
     if (jb) messages.push({ role: 'system', content: jb });
     messages.push(

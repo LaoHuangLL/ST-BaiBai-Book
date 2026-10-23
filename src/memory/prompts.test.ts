@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { apiSettings } from '@/api/settings';
+import { activePrompts, apiSettings } from '@/api/settings';
 import {
   buildBatchSummaryPrompt,
   buildBatchThinking,
@@ -29,15 +29,18 @@ import {
 import { START_TAG, TIME_TAG_PROMPT } from './timeTag';
 import dataWrappersRaw from './prompts/data-wrappers.txt?raw';
 
-const originalPrompts = { ...apiSettings.prompts };
+// 仓库在 Windows 以 CRLF 检出时,?raw 导入会带 \r;模板侧统一用 \n,比较前先归一化。
+const dataWrappers = dataWrappersRaw.replace(/\r\n/g, '\n');
+
+const originalPrompts = { ...apiSettings.prompts.zh };
 const originalVerbosity = apiSettings.verbosity;
 
 beforeEach(() => {
-  Object.assign(apiSettings.prompts, { summary: '', resummary: '', resummary2: '' });
+  Object.assign(apiSettings.prompts.zh, { summary: '', resummary: '', resummary2: '' });
 });
 
 afterEach(() => {
-  Object.assign(apiSettings.prompts, originalPrompts);
+  Object.assign(apiSettings.prompts.zh, originalPrompts);
   apiSettings.verbosity = originalVerbosity;
 });
 
@@ -125,7 +128,7 @@ describe('new built-in prompts', () => {
   });
 
   it('keeps custom templates in user with the compatibility supplements in system', () => {
-    apiSettings.prompts.summary = 'CUSTOM {{content}} {{protagonist_block}}';
+    apiSettings.prompts.zh.summary = 'CUSTOM {{content}} {{protagonist_block}}';
     const parts = buildSummaryPrompt({ ...args, protagonist: { identity: 'CUSTOM_PROFILE' } });
     expect(parts.user).toContain(`CUSTOM ${args.content}`);
     expect(parts.user).toContain('CUSTOM_PROFILE');
@@ -137,9 +140,9 @@ describe('new built-in prompts', () => {
 
   it('isBuiltinSummaryPrompt 区分内置/自定义,作为解析校验开关', () => {
     expect(isBuiltinSummaryPrompt()).toBe(true);
-    Object.assign(apiSettings.prompts, { summary: SUMMARY_PROMPT });
+    Object.assign(apiSettings.prompts.zh, { summary: SUMMARY_PROMPT });
     expect(isBuiltinSummaryPrompt()).toBe(true);
-    apiSettings.prompts.summary = '自定义 {{content}}';
+    apiSettings.prompts.zh.summary = '自定义 {{content}}';
     expect(isBuiltinSummaryPrompt()).toBe(false);
   });
 
@@ -160,7 +163,7 @@ describe('new built-in prompts', () => {
       buildResummaryPrompt({ ...args, level: 1 }),
       buildResummaryPrompt({ ...args, level: 2 }),
     ];
-    Object.assign(apiSettings.prompts, { summary: SUMMARY_PROMPT, resummary: RESUMMARY_PROMPT, resummary2: RESUMMARY2_PROMPT });
+    Object.assign(apiSettings.prompts.zh, { summary: SUMMARY_PROMPT, resummary: RESUMMARY_PROMPT, resummary2: RESUMMARY2_PROMPT });
     expect([
       buildSummaryPrompt(args),
       buildResummaryPrompt({ ...args, level: 1 }),
@@ -202,8 +205,8 @@ describe('batch and compression prompts', () => {
   });
 
   it('keeps custom compression text in user and supplements in system', () => {
-    apiSettings.prompts.resummary = 'CUSTOM L1 {{content}} {{resummary_words}}';
-    apiSettings.prompts.resummary2 = 'CUSTOM L2 {{content}} {{target_min}} {{target_max}} {{target}}';
+    apiSettings.prompts.zh.resummary = 'CUSTOM L1 {{content}} {{resummary_words}}';
+    apiSettings.prompts.zh.resummary2 = 'CUSTOM L2 {{content}} {{target_min}} {{target_max}} {{target}}';
     for (const level of [1, 2] as const) {
       const parts = buildResummaryPrompt({ ...args, content: 'x'.repeat(1000), level });
       expect(parts.user).toContain(level === 1 ? 'CUSTOM L1' : 'CUSTOM L2');
@@ -231,15 +234,17 @@ describe('jailbreak, briefing and query rewrite', () => {
   });
 
   it('资料包装与 09 原文逐字一致(仅把占位换成实际资料)', () => {
+    // 模板源码与 ?raw 文本都可能按 CRLF 检出,比较前统一成 \n,只校验内容本身。
+    const norm = (s: string) => s.replace(/\r\n/g, '\n');
     const section = (placeholder: string, sentinel: string) =>
-      dataWrappersRaw
+      dataWrappers
         .replace(placeholder, sentinel)
         .split(/\n\s*\n(?=【)/)
         .find(b => b.includes(sentinel))!
         .trim();
-    expect(buildPersonaSystem('SENT')).toBe(section('〔主角设定占位〕', 'SENT'));
-    expect(buildWorldInfoSystem('SENT')).toBe(section('〔世界书内容占位〕', 'SENT'));
-    expect(buildCharCardSystem('SENT')).toBe(section('〔角色卡内容占位〕', 'SENT'));
+    expect(norm(buildPersonaSystem('SENT'))).toBe(section('〔主角设定占位〕', 'SENT'));
+    expect(norm(buildWorldInfoSystem('SENT'))).toBe(section('〔世界书内容占位〕', 'SENT'));
+    expect(norm(buildCharCardSystem('SENT'))).toBe(section('〔角色卡内容占位〕', 'SENT'));
   });
 
   it('keeps the original 5-query rewrite prompt (复刻 Horae 的用户优化版)', () => {
@@ -259,5 +264,27 @@ describe('jailbreak, briefing and query rewrite', () => {
     expect(TIME_TAG_PROMPT).toContain('请你自行设定一个符合本世界观的具体起始时刻');
     expect(TIME_TAG_PROMPT).toContain('这是为记忆系统建立时间锚点所必需的合理设定,不算编造');
     expect(TIME_TAG_PROMPT).toContain('bbs_items');
+  });
+});
+
+describe('per-language custom prompts', () => {
+  const originalLang = apiSettings.promptLang;
+  const originalZh = { ...apiSettings.prompts.zh };
+  const originalEn = { ...apiSettings.prompts.en };
+
+  afterEach(() => {
+    apiSettings.promptLang = originalLang;
+    Object.assign(apiSettings.prompts.zh, originalZh);
+    Object.assign(apiSettings.prompts.en, originalEn);
+  });
+
+  it('activePrompts() reads the set matching promptLang without touching the other', () => {
+    apiSettings.prompts.zh.summary = 'ZH {{content}}';
+    apiSettings.prompts.en.summary = 'EN {{content}}';
+    apiSettings.promptLang = 'zh';
+    expect(activePrompts().summary).toBe('ZH {{content}}');
+    apiSettings.promptLang = 'en';
+    expect(activePrompts().summary).toBe('EN {{content}}');
+    expect(apiSettings.prompts.zh.summary).toBe('ZH {{content}}');
   });
 });

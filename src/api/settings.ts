@@ -63,6 +63,18 @@ export interface CustomPrompts {
 }
 
 /**
+ * 提示词语言:中/英各存一套自定义模板,切换语言只换「当前使用哪套」,两套互不覆盖。
+ * 空串仍回落到内置模板(内置模板是中文),想用英文请在自己的英文套里填满。
+ */
+export type PromptLang = 'zh' | 'en';
+export type CustomPromptsByLang = Record<PromptLang, CustomPrompts>;
+
+/** 一套空的自定义提示词(全部回落内置)。 */
+function emptyPromptSet(): CustomPrompts {
+  return { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '' };
+}
+
+/**
  * 单个向量角色的端点配置(扁平:自带地址+密钥+模型,不再经「渠道」中转)。
  * embedding 为基准必填;rerank/queryRewrite 的 url 留空 = 整体复用 embedding 的端点与模型。
  */
@@ -183,8 +195,10 @@ export interface ApiSettings {
   enabled: boolean;
   /** 界面偏好(主题/导航位置),随设置存进 extension_settings → 跨设备同步 */
   ui: UiPrefs;
-  /** 自定义提示词模板(空=用内置) */
-  prompts: CustomPrompts;
+  /** 自定义提示词模板:中/英各一套(空=用内置);用 promptLang 选择当前生效的一套 */
+  prompts: CustomPromptsByLang;
+  /** 当前生效的提示词语言 */
+  promptLang: PromptLang;
   /** 内置模板的字数详尽档位:详细/精简。自定义模板不受影响。 */
   verbosity: Verbosity;
   /** 向量记忆配置 */
@@ -325,7 +339,8 @@ function defaults(): ApiSettings {
       orbOpacity: 62,
       orbSize: 48,
     },
-    prompts: { summary: '', resummary: '', resummary2: '', jailbreak: '', timeTag: '' },
+    prompts: { zh: emptyPromptSet(), en: emptyPromptSet() },
+    promptLang: 'zh',
     verbosity: 'detailed',
     vector: {
       enabled: false,
@@ -373,13 +388,39 @@ function defaults(): ApiSettings {
   };
 }
 
+/** 单套提示词逐字段兜底:非字符串/缺失一律回落空串(空串=用内置)。 */
+function normalizePromptSet(raw: unknown): CustomPrompts {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<CustomPrompts>;
+  return {
+    summary: typeof r.summary === 'string' ? r.summary : '',
+    resummary: typeof r.resummary === 'string' ? r.resummary : '',
+    resummary2: typeof r.resummary2 === 'string' ? r.resummary2 : '',
+    jailbreak: typeof r.jailbreak === 'string' ? r.jailbreak : '',
+    timeTag: typeof r.timeTag === 'string' ? r.timeTag : '',
+  };
+}
+
+/**
+ * 中英两套提示词归一化。
+ * 老数据是扁平单套(直接 { summary, ... },没有 zh/en 键)→ 整份迁到 zh,en 留空;
+ * 新数据分别兜底,缺失的一套回落空串。
+ */
+function normalizePrompts(raw: unknown): CustomPromptsByLang {
+  const r = raw as Record<string, unknown> | undefined;
+  const layered = !!r && typeof r === 'object' && ('zh' in r || 'en' in r);
+  return layered
+    ? { zh: normalizePromptSet(r?.zh), en: normalizePromptSet(r?.en) }
+    : { zh: normalizePromptSet(raw), en: normalizePromptSet(undefined) };
+}
+
 /** 把任意来源的原始对象并入默认值,容错缺字段/类型不符。 */
 function normalize(raw: unknown): ApiSettings {
   if (!raw || typeof raw !== 'object') return defaults();
   const d = defaults();
   const merged = { ...d, ...(raw as Partial<ApiSettings>) };
-  // prompts 是嵌套对象,展开合并不会补全缺字段,单独兜底(老数据没有 prompts 键时回退默认)
-  merged.prompts = { ...d.prompts, ...((raw as Partial<ApiSettings>).prompts ?? {}) };
+  // prompts 有中英两套,不能浅合并;旧版扁平结构在这里一次性迁移到 zh 槽
+  merged.prompts = normalizePrompts((raw as Partial<ApiSettings>).prompts);
+  merged.promptLang = (raw as Partial<ApiSettings>).promptLang === 'en' ? 'en' : 'zh';
   // ui 同为嵌套对象,逐字段兜底(老数据没有 ui 键时回退默认,值非字符串时丢弃)
   const ru = ((raw as Partial<ApiSettings>).ui ?? {}) as Partial<UiPrefs>;
   merged.ui = {
@@ -583,6 +624,14 @@ function normalizeChannel(c: Partial<ApiChannel>): ApiChannel {
 // import 阶段 ST 往往尚未就绪,先以默认值建 reactive;真实值由 hydrateSettings 灌入。
 export const apiSettings = reactive<ApiSettings>(defaults());
 
+/**
+ * 当前生效语言的那套自定义提示词(空串=回落内置)。
+ * 所有「读模板」的代码都走这里,切换 promptLang 即整体换一套,不用改任何调用点。
+ */
+export function activePrompts(): CustomPrompts {
+  return apiSettings.prompts[apiSettings.promptLang];
+}
+
 // 守门标志:hydrate 完成前不回写,避免「默认值」覆盖服务器上已存的设置。
 let ready = false;
 let sharedChannelsFingerprint = '';
@@ -603,7 +652,9 @@ export function onSettingsReady(cb: () => void): void {
 function applyInto(target: ApiSettings, src: ApiSettings): void {
   target.enabled = src.enabled;
   target.ui = src.ui;
-  target.prompts = src.prompts;
+  // prompts 两套都深拷贝一份,避免把 extension_settings 里的原始对象引用挂进 reactive
+  target.prompts = { zh: { ...src.prompts.zh }, en: { ...src.prompts.en } };
+  target.promptLang = src.promptLang;
   target.verbosity = src.verbosity;
   target.vector = src.vector;
   target.channels = src.channels;
