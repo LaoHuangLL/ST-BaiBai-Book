@@ -1,5 +1,19 @@
-import { pickLang, promptLangIsEn } from '@/api/settings';
 import type { MemNpc, NpcAffinity, NpcAffinityLevel, NpcPresence } from './types';
+
+/** 本模块的语言状态:由 settings 在语言切换时同步,避免反向依赖 settings(它会被脚本单独转译)。 */
+let relLang: 'zh' | 'en' = 'zh';
+
+export function setNpcRelationsLang(lang: 'zh' | 'en'): void {
+  relLang = lang;
+}
+
+function promptLangIsEn(): boolean {
+  return relLang === 'en';
+}
+
+function pickLang(zh: string, en: string): string {
+  return relLang === 'en' ? en : zh;
+}
 
 function oneLine(value: string | undefined): string {
   return (value ?? '').replace(/\s*[\r\n]+\s*/g, ' ').trim();

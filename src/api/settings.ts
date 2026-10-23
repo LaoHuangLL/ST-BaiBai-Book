@@ -3,6 +3,7 @@ import { normalizeTemplate, type VarTemplate } from '@/memory/types';
 import { reactive, watch } from 'vue';
 import { DEFAULT_RECALL_INJECTION_DEPTH, normalizeRecallInjectionDepth } from '@/memory/vector/depth';
 import { setTimeRelLang } from '@/memory/timeRel';
+import { setNpcRelationsLang } from '@/memory/npcRelations';
 
 /**
  * 副 API 设置(全局,跨聊天)。存进 ST 的 extension_settings(→ 服务器 settings.json),
@@ -644,7 +645,11 @@ export const apiSettings = reactive<ApiSettings>(defaults());
 
 // 相对时间/年龄注记由 timeRel 负责格式化,这里把语言同步过去(它不能再反向 import 本模块)。
 setTimeRelLang(apiSettings.promptLang);
-watch(() => apiSettings.promptLang, lang => setTimeRelLang(lang));
+setNpcRelationsLang(apiSettings.promptLang);
+watch(() => apiSettings.promptLang, lang => {
+  setTimeRelLang(lang);
+  setNpcRelationsLang(lang);
+}, { flush: 'sync' });
 
 /**
  * 当前生效语言的那套自定义提示词(空串=回落内置)。

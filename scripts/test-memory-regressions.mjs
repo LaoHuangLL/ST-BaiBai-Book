@@ -300,7 +300,7 @@ includes(protagonistCopy[1], "'ageTime'", '主角拷贝循环必须包含 ageTim
 
 // 注入端主角块必须读 memory.protagonist(响应式镜像),且年龄行走 ageDisplay 推算。
 const injectSource = await readFile(new URL('../src/memory/inject.ts', import.meta.url), 'utf8');
-includes(injectSource, "['年龄', ageDisplay(protagonist.age, protagonist.ageTime, now)]", '主角注入块必须包含年龄推算');
+includes(injectSource, "pickLang('年龄', 'Age'), ageDisplay(protagonist.age, protagonist.ageTime, now)", '主角注入块必须包含年龄推算');
 includes(injectSource, 'fmtProtagonistContext(memory.protagonist', '主角注入必须读响应式镜像');
 
 // 手动入口必须接入生活小档案和局势卡，并在没有识别到任何操作时返回失败，防止 UI 静默关闭。

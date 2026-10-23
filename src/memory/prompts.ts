@@ -1091,7 +1091,7 @@ export function fmtLifeDetails(details: MemLifeDetail[], userName = '主角'): s
       const meta: string[] = [];
       if (d.topics.length) meta.push(`${pickLang('主题', 'topics')}:${d.topics.map(oneLine).filter(Boolean).join('/')}`);
       if (d.anchors.length) meta.push(`${pickLang('词', 'keywords')}:${d.anchors.map(oneLine).filter(Boolean).join('/')}`);
-      return `  d${idx + 1}. [${tierLabel}] ${oneLine(fmtLifeDetail(d, userName))}${meta.length ? ` (${meta.join(' | ')})` : ''}`;
+      return `  d${idx + 1}. [${tierLabel}] ${oneLine(fmtLifeDetail(d, userName, pickLang('：', ': ')))}${meta.length ? ` (${meta.join(' | ')})` : ''}`;
     })
     .join('\n');
 }

@@ -610,7 +610,7 @@ export function buildStateInjectionText(): string {
   if (inj.lifeDetails && memory.lifeDetails.length) {
     const picked = selectLifeDetailsForInjection(memory.lifeDetails, recentContextText(), memory.state.time, calculateRelativeDays);
     if (picked.length) {
-      const lines = picked.map(d => `- ${oneLine(fmtLifeDetail(d, getContext()?.name1?.trim() || pickLang('主角', 'the protagonist')))}`);
+      const lines = picked.map(d => `- ${oneLine(fmtLifeDetail(d, getContext()?.name1?.trim() || pickLang('主角', 'the protagonist'), pickLang('：', ': ')))}`);
       st.push(pickLang(
         `[生活小档案·按人物]\n${lines.join('\n')}\n(每条仅属于姓名标明的人,不可混用给主角或其他角色;仅在与当前对话自然相关时参考,不要逐条复述或刻意提及,用不上就忽略。档案存在不代表其他角色已知这些细节,仍遵守剧情视角)`,
         `[Life details · by character]\n${lines.join('\n')}\n(Each entry belongs only to the named person; never reassign it to the protagonist or another character. Consult only when naturally relevant to the current conversation; do not recite entries one by one or bring them up deliberately, ignore them if useless. The existence of an entry does not mean other characters know these details; stay within the story's point of view.)`,
